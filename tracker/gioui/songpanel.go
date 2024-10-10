@@ -40,12 +40,15 @@ type SongPanel struct {
 
 	// Edit menu items
 	editMenuItems []MenuItem
+
+	// Midi menu items
+	midiMenuItems []MenuItem
 }
 
 func NewSongPanel(model *tracker.Model) *SongPanel {
 	ret := &SongPanel{
-		MenuBar:        make([]widget.Clickable, 2),
-		Menus:          make([]Menu, 2),
+		MenuBar:        make([]widget.Clickable, 3),
+		Menus:          make([]Menu, 3),
 		BPM:            NewNumberInput(model.BPM().Int()),
 		RowsPerPattern: NewNumberInput(model.RowsPerPattern().Int()),
 		RowsPerBeat:    NewNumberInput(model.RowsPerBeat().Int()),
@@ -73,6 +76,15 @@ func NewSongPanel(model *tracker.Model) *SongPanel {
 		{IconBytes: icons.ContentRedo, Text: "Redo", ShortcutText: shortcutKey + "Y", Doer: model.Redo()},
 		{IconBytes: icons.ImageCrop, Text: "Remove unused data", Doer: model.RemoveUnused()},
 	}
+	devices := model.MIDI.ListInputDevices()
+	for _, input := range devices {
+		ret.midiMenuItems = append(ret.midiMenuItems, MenuItem{
+			IconBytes: icons.ImageControlPoint,
+			Text:      input.String(),
+			Doer:      model.SelectMidiInput(input),
+		})
+	}
+
 	return ret
 }
 
@@ -96,6 +108,7 @@ func (t *SongPanel) layoutMenuBar(gtx C, tr *Tracker) D {
 	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.End}.Layout(gtx,
 		layout.Rigid(tr.layoutMenu(gtx, "File", &t.MenuBar[0], &t.Menus[0], unit.Dp(200), t.fileMenuItems...)),
 		layout.Rigid(tr.layoutMenu(gtx, "Edit", &t.MenuBar[1], &t.Menus[1], unit.Dp(200), t.editMenuItems...)),
+		layout.Rigid(tr.layoutMenu(gtx, "MIDI", &t.MenuBar[2], &t.Menus[2], unit.Dp(200), t.midiMenuItems...)),
 	)
 }
 
