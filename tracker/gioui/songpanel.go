@@ -67,6 +67,7 @@ func NewSongPanel(model *tracker.Model) *SongPanel {
 		{IconBytes: icons.ContentSave, Text: "Save Song", ShortcutText: shortcutKey + "S", Doer: model.SaveSong()},
 		{IconBytes: icons.ContentSave, Text: "Save Song As...", Doer: model.SaveSongAs()},
 		{IconBytes: icons.ImageAudiotrack, Text: "Export Wav...", Doer: model.Export()},
+		// {IconBytes: icons.ImageControlPoint, Text: "Connect Midi", Doer: model.MIDI.ShowMidiMenu()},
 	}
 	if canQuit {
 		ret.fileMenuItems = append(ret.fileMenuItems, MenuItem{IconBytes: icons.ActionExitToApp, Text: "Quit", Doer: model.Quit()})
@@ -76,15 +77,13 @@ func NewSongPanel(model *tracker.Model) *SongPanel {
 		{IconBytes: icons.ContentRedo, Text: "Redo", ShortcutText: shortcutKey + "Y", Doer: model.Redo()},
 		{IconBytes: icons.ImageCrop, Text: "Remove unused data", Doer: model.RemoveUnused()},
 	}
-	devices := model.MIDI.ListInputDevices()
-	for _, input := range devices {
+	for input := range model.MIDI.ListInputDevices() {
 		ret.midiMenuItems = append(ret.midiMenuItems, MenuItem{
 			IconBytes: icons.ImageControlPoint,
 			Text:      input.String(),
 			Doer:      model.SelectMidiInput(input),
 		})
 	}
-
 	return ret
 }
 

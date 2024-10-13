@@ -391,7 +391,8 @@ func (m *Model) ExportFloat() Action { return Allow(func() { m.dialog = ExportFl
 func (m *Model) ExportInt16() Action { return Allow(func() { m.dialog = ExportInt16Explorer }) }
 func (m *Model) SelectMidiInput(input drivers.In) Action {
 	return Allow(func() {
-		if !m.MIDI.OpenInputDevice(input) {
+		result := m.MIDI.OpenInputDevice(item)
+		if !result {
 			message := fmt.Sprintf("Could not open MIDI device %s\n", input)
 			m.Alerts().Add(message, Error)
 		}
