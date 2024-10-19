@@ -63,6 +63,73 @@ su_op_envelope_leave2:
 {{end}}
 
 
+{{if .HasOp "envelopexp" -}}
+;-------------------------------------------------------------------------------
+;   envelopexp opcode: pushes an ADSR envelopeXPERIMENTAL value on stack [0,1]
+;-------------------------------------------------------------------------------
+;   Mono:   push the envelopexp value on stack
+;   Stereo: push the envelopexp valeu on stack twice
+;-------------------------------------------------------------------------------
+{{.Func "su_op_envelopexp" "Opcode"}}
+{{- if .StereoAndMono "envelopexp"}}
+    jnc     su_op_envelopexp_mono
+{{- end}}
+{{- if .Stereo "envelopexp"}}
+    call    su_op_envelopexp_mono
+    fld     st0
+    ret
+su_op_envelopexp_mono:
+{{- end}}
+    mov     eax, dword [{{.INP}}-su_voice.inputs+su_voice.sustain] ; eax = su_instrument.sustain
+    test    eax, eax                            ; if (eax != 0)
+    jne     su_op_envelopexp_process              ;   goto process
+    mov     al, {{.InputNumber "envelopexp" "release"}}  ; [state]=RELEASE
+    mov     dword [{{.WRK}}], eax               ; note that mov al, XXX; mov ..., eax is less bytes than doing it directly
+su_op_envelopexp_process:
+    mov     eax, dword [{{.WRK}}]  ; al=[state]
+    fld     dword [{{.WRK}}+4]       ; x=[level]
+    cmp     al, {{.InputNumber "envelopexp" "sustain"}}               ; if (al==SUSTAIN)
+    je      short su_op_envelopexp_leave2         ;   goto leave2
+su_op_envelopexp_attac:
+    cmp     al, {{.InputNumber "envelopexp" "attack"}}                 ; if (al!=ATTAC)
+    jne     short su_op_envelopexp_decay          ;   goto decay
+    {{.Call "su_nonlinear_map"}}                ; a x, where a=attack
+    faddp   st1, st0                            ; a+x
+    fld1                                        ; 1 a+x
+    fucomi  st1                                 ; if (a+x<=1) // is attack complete?
+    fcmovnb st0, st1                            ;   a+x a+x
+    jbe     short su_op_envelopexp_doublestatechange    ; else goto doublestatechange (because exp parameter)
+su_op_envelopexp_decay:
+    cmp     al, {{.InputNumber "envelopexp" "decay"}}                 ; if (al!=DECAY)
+    jne     short su_op_envelopexp_release        ;   goto release
+    {{.Call "su_nonlinear_map"}}                ; d x, where d=decay
+    fsubp   st1, st0                            ; x-d
+    fld     dword [{{.Input "envelopexp" "sustain"}}]    ; s x-d, where s=sustain
+    fucomi  st1                                 ; if (x-d>s) // is decay complete?
+    fcmovb  st0, st1                            ;   x-d x-d
+    jnc     short su_op_envelopexp_doublestatechange    ; else goto doublestatechange (because exp parameter)
+su_op_envelopexp_release:
+    cmp     al, {{.InputNumber "envelopexp" "release"}}               ; if (al!=RELEASE)
+    jne     short su_op_envelopexp_leave          ;   goto leave
+    {{.Call "su_nonlinear_map"}}                ; r x, where r=release
+    fsubp   st1, st0                            ; x-r
+    fldz                                        ; 0 x-r
+    fucomi  st1                                 ; if (x-r>0) // is release complete?
+    fcmovb  st0, st1                            ;   x-r x-r, then goto leave
+    jc      short su_op_envelopexp_leave
+su_op_envelopexp_doublestatechange:             ; due to the two extra parameters, sometimes we need to skip one
+    inc     dword [{{.WRK}}]       ; [state]++
+su_op_envelopexp_statechange:
+    inc     dword [{{.WRK}}]       ; [state]++
+su_op_envelopexp_leave:
+    fstp    st1                                 ; x', where x' is the new value
+    fst     dword [{{.WRK}}+4]       ; [level]=x'
+su_op_envelopexp_leave2:
+    fmul    dword [{{.Input "envelopexp" "gain"}}]       ; [gain]*x'
+    ret
+{{end}}
+
+
 {{- if .HasOp "noise"}}
 ;-------------------------------------------------------------------------------
 ;   NOISE opcode: creates noise
