@@ -127,10 +127,11 @@ su_op_envelopexp_decay:
     fldz                                        ; 0 x-d
     fucomi  st1                                 ; if (x-d>0) // is decay complete?
     fcmovb  st0, st1                            ;   x-d x-d
-    jnc     short su_op_envelopexp_statechange    ; else goto statechange
+    jnc     short su_op_envelopexp_statechange  ; else goto statechange
 su_op_envelopexp_release:
     cmp     al, {{.InputNumber "envelopexp" "release"}}               ; if (al!=RELEASE)
-    jne     short su_op_envelopexp_applyexp          ;   goto leave
+    jne     short su_op_envelopexp_applyexp     ;   goto leave
+    mov     dword [{{.WRK}} + 12], 0            ; <-- qm210: no baseline anymore
     {{.Call "su_nonlinear_map"}}                ; r x, where r=release
     fsubp   st1, st0                            ; x-r
     fldz                                        ; 0 x-r
@@ -158,16 +159,16 @@ su_op_envelopexp_applyexp:
     ; - now we need (x')^(kappa), but care for x' == 0 first
     fldz                                         ; stack: [ 0, x', kappa ]
     fucomip   st1                                 ; stack  [ x', kappa ] and ZF = (x' == 0)
-    jz       su_op_envelopexp_skipexp
+    jz       su_op_envelopexp_avoid_zero_glitch
     ; - still around? calculate the actual x'' = x^kappa then
     fyl2x                                        ; stack: [ kappa * log2 x' ]
     {{.Call "su_power"}}                         ; stack: [ x ^ kappa ]
+    jmp short su_op_envelopexp_applybaseline
+su_op_envelopexp_avoid_zero_glitch:
+    fstp st1
 su_op_envelopexp_applybaseline:
     ; - and scale the result to a different baseline: x''' = (B + (1 - B) * x'') for B != 0 (check not required)
-    ;mov r8, dword FCONST_0_500000
-    fld     dword [{{.WRK}} + 12]
-    ; fld     dword [r8]                           ; stack: [ B, x'' ]
-;    fldz  ; fake B  = 0
+    fld     dword [{{.WRK}} + 12]                ; stack: [ B, x'' ]
     fld1                                         ; stack: [ 1, B, x'' ]
     fsub st0, st1                                ; stack: [ 1-B, B, x'' ]
     fmulp st2, st0                               ; stack: [ (1-B) * x'', B ]
