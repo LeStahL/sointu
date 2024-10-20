@@ -80,24 +80,24 @@ su_op_envelope_leave2:
     ret
 su_op_envelopexp_mono:
 {{- end}}
+    ; qm210: seems like r10 is unused, i.e. we can store each segment's exponent there with 0.5 the default
+    {{.Prepare (.Float 0.5)}}  ; this produces mov r9, qword FCONST_0_500000
+    mov     r10, {{.Use (.Float 0.5)}}
     mov     eax, dword [{{.INP}}-su_voice.inputs+su_voice.sustain] ; eax = su_instrument.sustain
     test    eax, eax                            ; if (eax != 0)
     jne     su_op_envelopexp_process              ;   goto process
     mov     al, {{.InputNumber "envelopexp" "release"}}  ; [state]=RELEASE
     mov     dword [{{.WRK}}], eax               ; note that mov al, XXX; mov ..., eax is less bytes than doing it directly
 su_op_envelopexp_process:
-    ; qm210: seems like r10 is unused, i.e. we can store each segment's exponent there with 0.5 the default
-    {{.Prepare (.Float 0.5)}}
-    mov     r10, r9
     mov     eax, dword [{{.WRK}}]  ; al=[state]
-    fld     dword [{{.WRK}}+8]       ; x=[originalLevel]
+    fld     dword [{{.WRK}}+4]       ; x=[level]
     cmp     al, {{.InputNumber "envelopexp" "sustain"}}               ; if (al==SUSTAIN)
     je      short su_op_envelopexp_leave2         ;   goto leave2
 su_op_envelopexp_attac:
     cmp     al, {{.InputNumber "envelopexp" "attack"}}                 ; if (al!=ATTAC)
     jne     short su_op_envelopexp_decay          ;   goto decay
-    ; qm210: see above, can now overwrite
-    mov     r10, qword [{{.Input "envelopexp" "exp_attack"}}]
+    ; qm210: see above, if in attack, load address of exp_attack into r10
+    lea     r10, [{{.Input "envelopexp" "exp_attack"}}]
     {{.Call "su_nonlinear_map"}}                ; a x, where a=attack
     faddp   st1, st0                            ; a+x
     fld1                                        ; 1 a+x
@@ -107,8 +107,8 @@ su_op_envelopexp_attac:
 su_op_envelopexp_decay:
     cmp     al, {{.InputNumber "envelopexp" "decay"}}                 ; if (al!=DECAY)
     jne     short su_op_envelopexp_release        ;   goto release
-    ; qm210: see above, can now overwrite
-    mov     r10, qword [{{.Input "envelopexp" "exp_decay"}}]
+    ; qm210: see above, if in attack, load address of exp_decay into r10
+    lea     r10, [{{.Input "envelopexp" "exp_decay"}}]
     {{.Call "su_nonlinear_map"}}                ; d x, where d=decay
     fsubp   st1, st0                            ; x-d
     fld     dword [{{.Input "envelopexp" "sustain"}}]    ; s x-d, where s=sustain
@@ -127,18 +127,24 @@ su_op_envelopexp_release:
 su_op_envelopexp_statechange:
     ; qm210: this was:
     ; inc     dword [{{.WRK}}]       ; [state]++
-    ; ... but as we land here after attack and decay, and because these have the two exp_ parameters, skip 2
+    ; but as we land here after attack and decay, which now have another exp_ parameter, skip 2 to reach next state
     add     dword [{{.WRK}}], 2       ; [state]+=2
 su_op_envelopexp_leave:
     fstp    st1                                 ; x', where x' is the new value
     fst     dword [{{.WRK}}+4]       ; [level]=x'
-    fst     dword [{{.WRK}}+8]       ; [originalLevel]=x
 su_op_envelopexp_leave2:
-    fmul    dword [{{.Input "envelopexp" "gain"}}]       ; [gain]*x'
     ; --> QM EXPERIMENTING ALSO HERE
-    ; cmp     al, {{.InputNumber "envelopexp" "attack"}}                 ; if (al!=ATTAC)
-    ; fmul    st0, st0   ; lel is this square?
-    ; <-- QM EXPERIMENTING ALSO HERE
+    ; scale the r10 exponent in [0;1] to [-4;4], i.e. (x-0.5) * 8
+    ;fld1                           ; stack: [ expo, x', ... ]
+;    fld     qword [{{.Use (.Float 0.5)}}]                            ; stack: [ 0.5, expo, x', ... ]
+;    fsub    st0, st1                            ; stack: [ expo-0.5, expo, x', ... ]
+;    fstp    st1                                 ; stack: [ expo-0.5, x', ... ]
+;    {{.Prepare (.Int 8)}}
+;    fimul    dword [{{.Use (.Int 8)}}]       ; stack: [ 8*(expo-0.5), x', ... ]
+;    fmulp   st1, st0                            ; stack  [ 8*(expo-0.5)*x', ... ]
+;    {{.Call "su_power"}}                        ; stack: [ 2^(8*(expo-0.5)*x'), ... ]
+    ; <-- QM EXPERIMENTING ALSO HERE: x'' = 2^(8*(expo-0.5)*x')
+    fmul    dword [{{.Input "envelopexp" "gain"}}]       ; [gain]*x''
     ret
 {{end}}
 
