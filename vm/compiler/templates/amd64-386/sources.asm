@@ -76,7 +76,7 @@ su_op_envelope_leave2:
 {{- end}}
 {{- if .Stereo "envelopexp"}}
     call    su_op_envelopexp_mono
-    fld     st0
+    fld     st0     ; clone the mono value to the stack -> makes it stereo
     ret
 su_op_envelopexp_mono:
 {{- end}}
@@ -87,7 +87,7 @@ su_op_envelopexp_mono:
     mov     dword [{{.WRK}}], eax               ; note that mov al, XXX; mov ..., eax is less bytes than doing it directly
 su_op_envelopexp_process:
     mov     eax, dword [{{.WRK}}]  ; al=[state]
-    fld     dword [{{.WRK}}+4]       ; x=[level]
+    fld     dword [{{.WRK}}+8]       ; x=[originalLevel]
     cmp     al, {{.InputNumber "envelopexp" "sustain"}}               ; if (al==SUSTAIN)
     je      short su_op_envelopexp_leave2         ;   goto leave2
 su_op_envelopexp_attac:
@@ -117,15 +117,19 @@ su_op_envelopexp_release:
     fucomi  st1                                 ; if (x-r>0) // is release complete?
     fcmovb  st0, st1                            ;   x-r x-r, then goto leave
     jc      short su_op_envelopexp_leave
-su_op_envelopexp_doublestatechange:             ; due to the two extra parameters, sometimes we need to skip one
+su_op_envelopexp_doublestatechange:             ; due to the two extra parameters, skip 2
     inc     dword [{{.WRK}}]       ; [state]++
-su_op_envelopexp_statechange:
     inc     dword [{{.WRK}}]       ; [state]++
 su_op_envelopexp_leave:
     fstp    st1                                 ; x', where x' is the new value
     fst     dword [{{.WRK}}+4]       ; [level]=x'
+    fst     dword [{{.WRK}}+8]       ; [originalLevel]=x
 su_op_envelopexp_leave2:
     fmul    dword [{{.Input "envelopexp" "gain"}}]       ; [gain]*x'
+    ; --> QM EXPERIMENTING ALSO HERE
+    ; cmp     al, {{.InputNumber "envelopexp" "attack"}}                 ; if (al!=ATTAC)
+    ; fmul    st0, st0   ; lel is this square?
+    ; <-- QM EXPERIMENTING ALSO HERE
     ret
 {{end}}
 
