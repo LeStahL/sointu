@@ -86,6 +86,8 @@ su_op_envelopexp_mono:
     mov     al, {{.InputNumber "envelopexp" "release"}}  ; [state]=RELEASE
     mov     dword [{{.WRK}}], eax               ; note that mov al, XXX; mov ..., eax is less bytes than doing it directly
 su_op_envelopexp_process:
+    ; qm210: .Prepare loads a constant into r9 and as a trick, we use r9 as the store for any exponent
+    {{.Prepare (.Float 0.5)}}
     mov     eax, dword [{{.WRK}}]  ; al=[state]
     fld     dword [{{.WRK}}+8]       ; x=[originalLevel]
     cmp     al, {{.InputNumber "envelopexp" "sustain"}}               ; if (al==SUSTAIN)
@@ -93,21 +95,25 @@ su_op_envelopexp_process:
 su_op_envelopexp_attac:
     cmp     al, {{.InputNumber "envelopexp" "attack"}}                 ; if (al!=ATTAC)
     jne     short su_op_envelopexp_decay          ;   goto decay
+    ; qm210: see above, can now overwrite r9
+    mov     r9, qword [{{.Input "envelopexp" "exp_attack"}}]
     {{.Call "su_nonlinear_map"}}                ; a x, where a=attack
     faddp   st1, st0                            ; a+x
     fld1                                        ; 1 a+x
     fucomi  st1                                 ; if (a+x<=1) // is attack complete?
     fcmovnb st0, st1                            ;   a+x a+x
-    jbe     short su_op_envelopexp_doublestatechange    ; else goto doublestatechange (because exp parameter)
+    jbe     short su_op_envelopexp_statechange    ; else goto statechange
 su_op_envelopexp_decay:
     cmp     al, {{.InputNumber "envelopexp" "decay"}}                 ; if (al!=DECAY)
     jne     short su_op_envelopexp_release        ;   goto release
+    ; qm210: see above, can now overwrite r9
+    mov     r9, qword [{{.Input "envelopexp" "exp_decay"}}]
     {{.Call "su_nonlinear_map"}}                ; d x, where d=decay
     fsubp   st1, st0                            ; x-d
     fld     dword [{{.Input "envelopexp" "sustain"}}]    ; s x-d, where s=sustain
     fucomi  st1                                 ; if (x-d>s) // is decay complete?
     fcmovb  st0, st1                            ;   x-d x-d
-    jnc     short su_op_envelopexp_doublestatechange    ; else goto doublestatechange (because exp parameter)
+    jnc     short su_op_envelopexp_statechange    ; else goto statechange
 su_op_envelopexp_release:
     cmp     al, {{.InputNumber "envelopexp" "release"}}               ; if (al!=RELEASE)
     jne     short su_op_envelopexp_leave          ;   goto leave
@@ -117,9 +123,11 @@ su_op_envelopexp_release:
     fucomi  st1                                 ; if (x-r>0) // is release complete?
     fcmovb  st0, st1                            ;   x-r x-r, then goto leave
     jc      short su_op_envelopexp_leave
-su_op_envelopexp_doublestatechange:             ; due to the two extra parameters, skip 2
-    inc     dword [{{.WRK}}]       ; [state]++
-    inc     dword [{{.WRK}}]       ; [state]++
+su_op_envelopexp_statechange:
+    ; qm210: this was:
+    ; inc     dword [{{.WRK}}]       ; [state]++
+    ; ... but as we land here after attack and decay, and because these have the two exp_ parameters, skip 2
+    add     dword [{{.WRK}}], 2       ; [state]+=2
 su_op_envelopexp_leave:
     fstp    st1                                 ; x', where x' is the new value
     fst     dword [{{.WRK}}+4]       ; [level]=x'
