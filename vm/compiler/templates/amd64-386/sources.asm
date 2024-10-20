@@ -86,8 +86,9 @@ su_op_envelopexp_mono:
     mov     al, {{.InputNumber "envelopexp" "release"}}  ; [state]=RELEASE
     mov     dword [{{.WRK}}], eax               ; note that mov al, XXX; mov ..., eax is less bytes than doing it directly
 su_op_envelopexp_process:
-    ; qm210: .Prepare loads a constant into r9 and as a trick, we use r9 as the store for any exponent
+    ; qm210: seems like r10 is unused, i.e. we can store each segment's exponent there with 0.5 the default
     {{.Prepare (.Float 0.5)}}
+    mov     r10, r9
     mov     eax, dword [{{.WRK}}]  ; al=[state]
     fld     dword [{{.WRK}}+8]       ; x=[originalLevel]
     cmp     al, {{.InputNumber "envelopexp" "sustain"}}               ; if (al==SUSTAIN)
@@ -95,8 +96,8 @@ su_op_envelopexp_process:
 su_op_envelopexp_attac:
     cmp     al, {{.InputNumber "envelopexp" "attack"}}                 ; if (al!=ATTAC)
     jne     short su_op_envelopexp_decay          ;   goto decay
-    ; qm210: see above, can now overwrite r9
-    mov     r9, qword [{{.Input "envelopexp" "exp_attack"}}]
+    ; qm210: see above, can now overwrite
+    mov     r10, qword [{{.Input "envelopexp" "exp_attack"}}]
     {{.Call "su_nonlinear_map"}}                ; a x, where a=attack
     faddp   st1, st0                            ; a+x
     fld1                                        ; 1 a+x
@@ -106,8 +107,8 @@ su_op_envelopexp_attac:
 su_op_envelopexp_decay:
     cmp     al, {{.InputNumber "envelopexp" "decay"}}                 ; if (al!=DECAY)
     jne     short su_op_envelopexp_release        ;   goto release
-    ; qm210: see above, can now overwrite r9
-    mov     r9, qword [{{.Input "envelopexp" "exp_decay"}}]
+    ; qm210: see above, can now overwrite
+    mov     r10, qword [{{.Input "envelopexp" "exp_decay"}}]
     {{.Call "su_nonlinear_map"}}                ; d x, where d=decay
     fsubp   st1, st0                            ; x-d
     fld     dword [{{.Input "envelopexp" "sustain"}}]    ; s x-d, where s=sustain
