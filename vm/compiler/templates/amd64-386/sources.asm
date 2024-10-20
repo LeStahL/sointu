@@ -80,23 +80,30 @@ su_op_envelope_leave2:
     ret
 su_op_envelopexp_mono:
 {{- end}}
-    ; qm210: seems like r10 is unused, i.e. we can store each segment's exponent there with 0.5 the default
-    {{.Prepare (.Float 0.5)}}  ; this produces mov r9, qword FCONST_0_500000
-    mov     r10, {{.Use (.Float 0.5)}}
+    ; qm210: I read that the general registers are fastest, so for this calculation, store
+    ; - r10: the exponent of the current segment (A, D, or the default 0.5)
+    ; - in unit.state[3] : the baseline of the current segment ( = sustain for D, S and 0 otherwise)
+    ;   ( I tried r8 beforehand, didn't make it work. now it is .WRK + 12 )
+    ; PS: r9 is always used as temporary space for constants or su_nonlinear_map
+    ;    and if you change registers that are use somewhere unknown... you know -- danger zone :)
+    {{.Prepare (.Float 0.5)}}                   ; this produces mov r9, qword FCONST_0_500000
+    mov     r10, {{.Use (.Float 0.5)}}          ; default exponent = 0.5
+    mov     dword [{{.WRK}} + 12], 0            ; default baseline = 0
+    ; <-- qm210
     mov     eax, dword [{{.INP}}-su_voice.inputs+su_voice.sustain] ; eax = su_instrument.sustain
     test    eax, eax                            ; if (eax != 0)
-    jne     su_op_envelopexp_process              ;   goto process
+    jne     su_op_envelopexp_process            ;   goto process
     mov     al, {{.InputNumber "envelopexp" "release"}}  ; [state]=RELEASE
     mov     dword [{{.WRK}}], eax               ; note that mov al, XXX; mov ..., eax is less bytes than doing it directly
 su_op_envelopexp_process:
-    mov     eax, dword [{{.WRK}}]  ; al=[state]
-    fld     dword [{{.WRK}}+4]       ; x=[level]
-    cmp     al, {{.InputNumber "envelopexp" "sustain"}}               ; if (al==SUSTAIN)
-    je      short su_op_envelopexp_leave2         ;   goto leave2
+    mov     eax, dword [{{.WRK}}]                           ; al=[state]
+    fld     dword [{{.WRK}}+4]                              ; x=[level]
+    cmp     al, {{.InputNumber "envelopexp" "sustain"}}     ; if (al==SUSTAIN)
+    je      su_op_envelopexp_sustain
 su_op_envelopexp_attac:
     cmp     al, {{.InputNumber "envelopexp" "attack"}}                 ; if (al!=ATTAC)
     jne     short su_op_envelopexp_decay          ;   goto decay
-    ; qm210: see above, if in attack, load address of exp_attack into r10
+    ; qm210: see above. if in attack, let r10 point to exp_attack
     lea     r10, [{{.Input "envelopexp" "exp_attack"}}]
     {{.Call "su_nonlinear_map"}}                ; a x, where a=attack
     faddp   st1, st0                            ; a+x
@@ -105,45 +112,75 @@ su_op_envelopexp_attac:
     fcmovnb st0, st1                            ;   a+x a+x
     jbe     short su_op_envelopexp_statechange    ; else goto statechange
 su_op_envelopexp_decay:
+    ;lea     r8, [{{.Input "envelopexp" "sustain"}}]
+    fld     dword [{{.Input "envelopexp" "sustain"}}]
+    fstp    dword[{{.WRK}} + 12]
+    ; <-- qm210: storing baseline
     cmp     al, {{.InputNumber "envelopexp" "decay"}}                 ; if (al!=DECAY)
     jne     short su_op_envelopexp_release        ;   goto release
-    ; qm210: see above, if in attack, load address of exp_decay into r10
+    ; qm210: see above. if in decay, let r10 point to exp_decay, and set r8 to the sustain value
     lea     r10, [{{.Input "envelopexp" "exp_decay"}}]
+    ; <-- qm210
     {{.Call "su_nonlinear_map"}}                ; d x, where d=decay
     fsubp   st1, st0                            ; x-d
-    fld     dword [{{.Input "envelopexp" "sustain"}}]    ; s x-d, where s=sustain
-    fucomi  st1                                 ; if (x-d>s) // is decay complete?
+    ; qm210: we can ignore the sustain here, it will be applied via the "baseline" (cf. above / below)
+    fldz                                        ; 0 x-d
+    fucomi  st1                                 ; if (x-d>0) // is decay complete?
     fcmovb  st0, st1                            ;   x-d x-d
     jnc     short su_op_envelopexp_statechange    ; else goto statechange
 su_op_envelopexp_release:
     cmp     al, {{.InputNumber "envelopexp" "release"}}               ; if (al!=RELEASE)
-    jne     short su_op_envelopexp_leave          ;   goto leave
+    jne     short su_op_envelopexp_applyexp          ;   goto leave
     {{.Call "su_nonlinear_map"}}                ; r x, where r=release
     fsubp   st1, st0                            ; x-r
     fldz                                        ; 0 x-r
     fucomi  st1                                 ; if (x-r>0) // is release complete?
     fcmovb  st0, st1                            ;   x-r x-r, then goto leave
-    jc      short su_op_envelopexp_leave
+    jc      short su_op_envelopexp_skipexp
 su_op_envelopexp_statechange:
     ; qm210: this was:
     ; inc     dword [{{.WRK}}]       ; [state]++
     ; but as we land here after attack and decay, which now have another exp_ parameter, skip 2 to reach next state
     add     dword [{{.WRK}}], 2       ; [state]+=2
-su_op_envelopexp_leave:
+su_op_envelopexp_applyexp:
     fstp    st1                                 ; x', where x' is the new value
-    fst     dword [{{.WRK}}+4]       ; [level]=x'
-su_op_envelopexp_leave2:
-    ; --> QM EXPERIMENTING ALSO HERE
-    ; scale the r10 exponent in [0;1] to [-4;4], i.e. (x-0.5) * 8
-    ;fld1                           ; stack: [ expo, x', ... ]
-;    fld     qword [{{.Use (.Float 0.5)}}]                            ; stack: [ 0.5, expo, x', ... ]
-;    fsub    st0, st1                            ; stack: [ expo-0.5, expo, x', ... ]
-;    fstp    st1                                 ; stack: [ expo-0.5, x', ... ]
-;    {{.Prepare (.Int 8)}}
-;    fimul    dword [{{.Use (.Int 8)}}]       ; stack: [ 8*(expo-0.5), x', ... ]
-;    fmulp   st1, st0                            ; stack  [ 8*(expo-0.5)*x', ... ]
-;    {{.Call "su_power"}}                        ; stack: [ 2^(8*(expo-0.5)*x'), ... ]
-    ; <-- QM EXPERIMENTING ALSO HERE: x'' = 2^(8*(expo-0.5)*x')
+    ; qm120: store the linear envelope in [level] because this is read again for the next value (cf. "envelope")
+    fst     dword [{{.WRK}} + 4]       ; [level]=x'
+    ; qm210: NOW THE ACTUAL EXPONENTIAL SCALING
+    ; - scale the exponent in [0; 1] to [0.125; 8], call that kappa = 2^(6*(expo-0.5))
+    fld     dword [r10]                          ; stack: [ expo, x' ]
+    fld     qword [{{.Use (.Float 0.5)}}]        ; stack: [ 0.5, expo, x' ]
+    fsubp    st1, st0                            ; stack: [ expo-0.5, x' ]
+    {{.Prepare (.Int 6)}}
+    fimul    dword [{{.Use (.Int 6)}}]           ; stack: [ 6*(expo-0.5), x' ]
+    {{.Call "su_power"}}                         ; stack: [ kappa, x' ]
+    fxch     st1                                 ; stack: [ x', kappa ]
+    ; - now we need (x')^(kappa), but care for x' == 0 first
+    fldz                                         ; stack: [ 0, x', kappa ]
+    fucomip   st1                                 ; stack  [ x', kappa ] and ZF = (x' == 0)
+    jz       su_op_envelopexp_skipexp
+    ; - still around? calculate the actual x'' = x^kappa then
+    fyl2x                                        ; stack: [ kappa * log2 x' ]
+    {{.Call "su_power"}}                         ; stack: [ x ^ kappa ]
+su_op_envelopexp_applybaseline:
+    ; - and scale the result to a different baseline: x''' = (B + (1 - B) * x'') for B != 0 (check not required)
+    ;mov r8, dword FCONST_0_500000
+    fld     dword [{{.WRK}} + 12]
+    ; fld     dword [r8]                           ; stack: [ B, x'' ]
+;    fldz  ; fake B  = 0
+    fld1                                         ; stack: [ 1, B, x'' ]
+    fsub st0, st1                                ; stack: [ 1-B, B, x'' ]
+    fmulp st2, st0                               ; stack: [ (1-B) * x'', B ]
+    faddp st1, st0                               ; stack: [ (1-B) * x'' + B ]
+    jmp short su_op_envelopexp_leave
+su_op_envelopexp_sustain:
+    ; qm210: overwrite level, because else the release cannot work
+    fld dword [{{.Input "envelopexp" "sustain"}}]
+su_op_envelopexp_skipexp:
+    fst dword [{{.WRK}} + 4]
+    fstp st1
+su_op_envelopexp_leave:
+    ; qm210: scaling because I use my wave editor as a function plotter ;)
     fmul    dword [{{.Input "envelopexp" "gain"}}]       ; [gain]*x''
     ret
 {{end}}
