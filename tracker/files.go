@@ -79,6 +79,10 @@ func (m *Model) WriteWav(w io.WriteCloser, pcm16 bool, execChan chan<- func(), f
 	m.dialog = NoDialog
 	song := m.d.Song.Copy()
 	go func() {
+		if finishedChan != nil {
+			defer close(finishedChan)
+		}
+
 		b := make([]byte, 32+2)
 		rand.Read(b)
 		name := fmt.Sprintf("%x", b)[2 : 32+2]
@@ -88,6 +92,7 @@ func (m *Model) WriteWav(w io.WriteCloser, pcm16 bool, execChan chan<- func(), f
 			}
 		}) // render the song to calculate its length
 		if err != nil {
+			fmt.Printf("ERROR RENDERING: %v\n", err)
 			execChan <- func() {
 				m.Alerts().Add(fmt.Sprintf("Error rendering the song during export: %v", err), Error)
 			}
@@ -102,10 +107,6 @@ func (m *Model) WriteWav(w io.WriteCloser, pcm16 bool, execChan chan<- func(), f
 		}
 		w.Write(buffer)
 		w.Close()
-
-		if finishedChan != nil {
-			close(finishedChan)
-		}
 	}()
 }
 
