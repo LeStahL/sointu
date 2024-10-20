@@ -3,7 +3,7 @@
 ;   ENVELOPE opcode: pushes an ADSR envelope value on stack [0,1]
 ;-------------------------------------------------------------------------------
 ;   Mono:   push the envelope value on stack
-;   Stereo: push the envelope valeu on stack twice
+;   Stereo: push the envelope value on stack twice
 ;-------------------------------------------------------------------------------
 {{.Func "su_op_envelope" "Opcode"}}
 {{- if .StereoAndMono "envelope"}}
@@ -68,11 +68,11 @@ su_op_envelope_leave2:
 ;   envelopexp opcode: pushes an ADSR envelopeXPERIMENTAL value on stack [0,1]
 ;-------------------------------------------------------------------------------
 ;   Mono:   push the envelopexp value on stack
-;   Stereo: push the envelopexp valeu on stack twice
+;   Stereo: push the envelopexp value on stack twice
 ;-------------------------------------------------------------------------------
 {{.Func "su_op_envelopexp" "Opcode"}}
 {{- if .StereoAndMono "envelopexp"}}
-    jnc     su_op_envelopexp_mono
+    jnc     su_op_envelopexp_mono   ; Carry Flag tells us whether Stereo
 {{- end}}
 {{- if .Stereo "envelopexp"}}
     call    su_op_envelopexp_mono
