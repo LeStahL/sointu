@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Include version info in the binaries, as given be `git describe`. This version
   info is shown as a label in the tracker and can be checked with `-v` flag in
   the command line tools.
+- New unit `atan` to apply the arcus tangens (useful for soft clipping)
 
 ### Fixed
 - When changing a nibble of a hexadecimal note, the note played was the note
