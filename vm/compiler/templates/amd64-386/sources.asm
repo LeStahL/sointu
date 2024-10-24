@@ -3,7 +3,7 @@
 ;   ENVELOPE opcode: pushes an ADSR envelope value on stack [0,1]
 ;-------------------------------------------------------------------------------
 ;   Mono:   push the envelope value on stack
-;   Stereo: push the envelope valeu on stack twice
+;   Stereo: push the envelope value on stack twice
 ;-------------------------------------------------------------------------------
 {{.Func "su_op_envelope" "Opcode"}}
 {{- if .StereoAndMono "envelope"}}

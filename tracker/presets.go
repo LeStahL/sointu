@@ -62,6 +62,7 @@ var defaultUnits = map[string]sointu.Unit{
 	"dbgain":     {Type: "dbgain", Parameters: map[string]int{"stereo": 0, "decibels": 64}},
 	"crush":      {Type: "crush", Parameters: map[string]int{"stereo": 0, "resolution": 64}},
 	"clip":       {Type: "clip", Parameters: map[string]int{"stereo": 0}},
+	"atan":       {Type: "atan", Parameters: map[string]int{"stereo": 0}},
 	"hold":       {Type: "hold", Parameters: map[string]int{"stereo": 0, "holdfreq": 64}},
 	"distort":    {Type: "distort", Parameters: map[string]int{"stereo": 0, "drive": 64}},
 	"filter":     {Type: "filter", Parameters: map[string]int{"stereo": 0, "frequency": 64, "resonance": 64, "lowpass": 1, "bandpass": 0, "highpass": 0, "negbandpass": 0, "neghighpass": 0}},

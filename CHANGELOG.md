@@ -46,6 +46,7 @@ by MIDI (i.e. while not recording). ([#170][i170])
 - Performance improvement: values needed by the UI that are derived from the
   score or patch are cached when score or patch changes, so they don't have to
   be computed every draw. ([#176][i176])
+- New unit `atan` to apply the arcus tangens (useful for soft clipping)
 
 ### Fixed
 - We try to honor the MIDI event time stamps, so that the timing between MIDI
