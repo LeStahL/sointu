@@ -213,6 +213,26 @@ su_op_filter_skipneghighpass:
 {{end}}
 
 
+{{- if .HasOp "atan"}}
+;-------------------------------------------------------------------------------
+;   ATAN opcode: squash the signal with arcus tangens (i.e. waveshaping)
+;                PS: atan(x) is in [-pi/2, pi/2], so we scale to [-1, 1] range.
+;-------------------------------------------------------------------------------
+;   Mono:   x   -> apply atan to x
+;   Stereo: l r -> apply atan to each l and r (individually)
+;-------------------------------------------------------------------------------
+{{.Func "su_op_atan" "Opcode"}}
+{{- if .Stereo "atan"}}
+    {{.Call "su_effects_stereohelper"}}
+{{- end}}
+    fld1                                            ; 1 x
+    fpatan                                          ; atan(x/1)
+    {{.Prepare (.Float 0.6366)}}
+    fmul    dword [{{.Use (.Float 0.6366)}}]        ; 2/pi * atan(x)
+    ret
+{{end}}
+
+
 {{- if .HasOp "pan" -}}
 ;-------------------------------------------------------------------------------
 ;   PAN opcode: pan the signal
