@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Performance improvement: values needed by the UI that are derived from the
   score or patch are cached when score or patch changes, so they don't have to
   be computed every draw. ([#176][i176])
+- New unit `envelopexp` that is a modification of `envelope` with curved
+  attack/decay shape
 
 ### Fixed
 - We try to honor the MIDI event time stamps, so that the timing between MIDI
