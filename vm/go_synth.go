@@ -357,6 +357,11 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 					stack[l-2] = clip(stack[l-2])
 				}
 				stack[l-1] = clip(stack[l-1])
+			case opAtan:
+				if stereo {
+					stack[l-2] = scaledAtan(stack[l-2])
+				}
+				stack[l-1] = scaledAtan(stack[l-1])
 			case opCrush:
 				if stereo {
 					stack[l-2] = crush(stack[l-2], params[0])
@@ -631,4 +636,8 @@ func waveshape(value, amount float32) float32 {
 		absVal = -absVal
 	}
 	return value * amount / (1 - amount + (2*amount-1)*absVal)
+}
+
+func scaledAtan(value float32) float32 {
+	return float32(2 / math.Pi * math.Atan(float64(value)))
 }
