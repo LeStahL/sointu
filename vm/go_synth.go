@@ -329,6 +329,45 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 				if stereo {
 					stack = append(stack, output)
 				}
+			case opEnvelopexp:
+				if !voices[0].sustain {
+					unit.state[0] = envStateRelease // set state to release
+				}
+				state := unit.state[0]
+				level := unit.state[1]
+				exponent := float64(1)
+				baseline := float32(0)
+				switch state {
+				case envStateAttack:
+					exponent = scaledEnvelopExponent(params[1])
+					level += nonLinearMap(params[0])
+					if level >= 1 {
+						level = 1
+						state = envStateDecay
+					}
+				case envStateDecay:
+					exponent = scaledEnvelopExponent(params[3])
+					sustain := params[4]
+					baseline = sustain
+					level -= nonLinearMap(params[2])
+					if level <= sustain {
+						level = sustain
+					}
+				case envStateRelease:
+					level -= nonLinearMap(params[5])
+					if level <= 0 {
+						level = 0
+					}
+				}
+				unit.state[0] = state
+				unit.state[1] = level
+				expLevel := float32(math.Pow(float64(level), exponent))
+				output := (baseline + (1-baseline)*expLevel) * params[6]
+				stack = append(stack, output)
+				if stereo {
+					stack = append(stack, output)
+				}
+				// <-- END TODO @qm210 -- ACTUALLY IMPLEMENT, BUT FIRST DO THE NATIVE ASM PART
 			case opNoise:
 				if stereo {
 					value := waveshape(synth.rand(), params[0]) * params[1]
@@ -613,6 +652,10 @@ func (s *synthState) rand() float32 {
 
 func nonLinearMap(value float32) float32 {
 	return float32(math.Exp2(float64(-24 * value)))
+}
+
+func scaledEnvelopExponent(value float32) float64 {
+	return math.Pow(2, 6*(0.5-float64(value)))
 }
 
 func clip(value float32) float32 {
