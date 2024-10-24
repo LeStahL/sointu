@@ -31,6 +31,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   info is shown as a label in the tracker and can be checked with `-v` flag in
   the command line tools.
 - New unit `atan` to apply the arcus tangens (useful for soft clipping)
+- New unit `envelopexp` that is a modification of `envelope` with curved
+  attack/decay shape
 
 ### Fixed
 - When changing a nibble of a hexadecimal note, the note played was the note
