@@ -44,6 +44,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   score or patch are cached when score or patch changes, so they don't have to
   be computed every draw. ([#176][i176])
 - New unit `atan` to apply the arcus tangens (useful for soft clipping)
+- New unit `envelopexp` that is a modification of `envelope` with curved
+  attack/decay shape
 
 ### Fixed
 - We try to honor the MIDI event time stamps, so that the timing between MIDI
