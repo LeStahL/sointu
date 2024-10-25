@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	unsafe "unsafe"
 
 	"github.com/vsariola/sointu"
 )
@@ -622,6 +623,24 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 				}
 			case opSync:
 				break
+			case opSignlogic:
+				if stereo {
+					stack[l-3] = applySignLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applySignLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applySignLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
+			case opIllogic:
+				if stereo {
+					stack[l-3] = applyIllogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applyIllogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applyIllogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
 			default:
 				return samples, time, errors.New("invalid / unimplemented opcode")
 			}
@@ -683,4 +702,49 @@ func waveshape(value, amount float32) float32 {
 
 func scaledAtan(value float32) float32 {
 	return float32(2 / math.Pi * math.Atan(float64(value)))
+}
+
+func applySignLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountXor float32) float32 {
+	// first implement, think about usefulness later.
+	if valueA == 0 || valueB == 0 {
+		return 0
+	}
+	valueAnd := valueA
+	if valueA > 0 {
+		valueAnd = valueB
+	}
+	valueOr := valueA
+	if valueB > 0 {
+		valueOr = valueB
+	}
+	valueXor := -valueA
+	if valueA < 0 && valueB < 0 {
+		valueXor = -valueB
+	} else if valueA < 0 && valueB > 0 {
+		valueXor = valueB
+	} else if valueA > 0 && valueB < 0 {
+		valueXor = valueA
+	}
+	return amountA*valueA + amountB*valueB +
+		amountAnd*valueAnd +
+		amountOr*valueOr +
+		amountXor*valueXor
+}
+
+func applyIllogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountXor float32) float32 {
+	// first implement, think about usefulness later.
+	aAddr := (*uint32)(unsafe.Pointer(&valueA))
+	bAddr := (*uint32)(unsafe.Pointer(&valueB))
+	valueAnd := *aAddr & *bAddr
+	valueOr := *aAddr | *bAddr
+	valueXor := *aAddr ^ *bAddr
+	cAnd := (*int32)(unsafe.Pointer(&valueAnd))
+	cOr := (*int32)(unsafe.Pointer(&valueOr))
+	cXor := (*int32)(unsafe.Pointer(&valueXor))
+	invMaxInt := float32(4.656613e-10)
+	outAnd := amountAnd * float32(*cAnd) * invMaxInt
+	outOr := amountOr * float32(*cOr) * invMaxInt
+	outXor := amountXor * float32(*cXor) * invMaxInt
+	inMix := amountA*valueA + amountB*valueB
+	return inMix + outAnd + outOr + outXor
 }

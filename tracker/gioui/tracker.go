@@ -313,10 +313,11 @@ func (t *Tracker) layoutTop(gtx layout.Context) layout.Dimensions {
 
 func (t *Tracker) ProcessMessage(msg interface{}) {
 	switch msg.(type) {
-	case tracker.StartPlayMsg:
-		fmt.Println("Tracker received StartPlayMsg")
-	case tracker.RecordingMsg:
-		fmt.Println("Tracker received RecordingMsg")
+	// could be implemented like this:
+	/*
+		case tracker.StartPlayMsg:
+			fmt.Println("Tracker received StartPlayMsg")
+	*/
 	default:
 		break
 	}

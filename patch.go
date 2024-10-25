@@ -197,6 +197,22 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
 		{Name: "channel", MinValue: 0, MaxValue: 6, CanSet: true, CanModulate: false, DisplayFunc: arrDispFunc(channelNames[:])}},
 	"sync": []UnitParameter{},
+	"signlogic": []UnitParameter{
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	},
+	"illogic": []UnitParameter{
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	},
 }
 
 var channelNames = [...]string{"left", "right", "aux1 left", "aux1 right", "aux2 left", "aux2 right", "aux3 left", "aux3 right"}
@@ -329,7 +345,7 @@ func (u *Unit) StackChange() int {
 		return 0
 	}
 	switch u.Type {
-	case "addp", "mulp", "pop", "out", "outaux", "aux":
+	case "addp", "mulp", "pop", "out", "outaux", "aux", "signlogic", "illogic":
 		return -1 - u.Parameters["stereo"]
 	case "envelope", "envelopexp", "oscillator", "push", "noise", "receive", "loadnote", "loadval", "in", "compressor":
 		return 1 + u.Parameters["stereo"]
@@ -353,7 +369,7 @@ func (u *Unit) StackNeed() int {
 	switch u.Type {
 	case "", "envelope", "envelopexp", "oscillator", "noise", "receive", "loadnote", "loadval", "in":
 		return 0
-	case "mulp", "mul", "add", "addp", "xch":
+	case "mulp", "mul", "add", "addp", "xch", "signlogic", "illogic":
 		return 2 * (1 + u.Parameters["stereo"])
 	case "speed":
 		return 1

@@ -203,3 +203,105 @@ su_op_xch_mono:
     fxch    st0, st1
     ret
 {{end}}
+
+
+
+{{- if .HasOp "signlogic"}}
+;-------------------------------------------------------------------------------
+;   QMs LOGIC experiments: mix two signals by sign
+;-------------------------------------------------------------------------------
+;   Mono:   a b -> signlogic(a,b)
+;   Stereo: a b c d -> signlogic(a,c) signlogic(b,d)
+;-------------------------------------------------------------------------------
+{{.Func "su_op_signlogic" "Opcode"}}
+{{- if .StereoAndMono "signlogic"}}
+    jnc     su_op_signlogic_mono
+{{- end}}
+{{- if .Stereo "signlogic"}}
+; qm210: for now, do nothing in stereo
+    fstp   st3
+    fstp   st2
+    ret
+{{- end}}
+{{- if .StereoAndMono "signlogic"}}
+su_op_signlogic_mono:
+{{- end}}
+{{- if .Mono "signlogic"}}
+; qm210: for now, do nothing in mono
+    fstp   st1
+    ret
+{{- end}}
+{{end}}
+
+
+{{- if .HasOp "illogic"}}
+;-------------------------------------------------------------------------------
+;   QMs LOGIC experiments: mix two signals by logic operations between bytes
+;                          this makes little sense because of IEEE-754 floats...
+;
+;   TODO: we might optimize / deduplicate this later, if it is even relevant!
+;-------------------------------------------------------------------------------
+{{.Func "su_op_illogic" "Opcode"}}
+{{- if .StereoAndMono "illogic"}}
+    jnc     su_op_illogic_mono
+{{- end}}
+{{- if .Stereo "illogic"}}
+; qm210: for now, do nothing in stereo
+    fstp   st3
+    fstp   st2
+    ret
+{{- end}}
+{{- if .StereoAndMono "illogic"}}
+su_op_illogic_mono:
+{{- end}}
+{{- if .Mono "illogic"}}                         ; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
+    {{.Prepare (.Float 4.6566129e-10)}}
+    ; qm210: get the two top stack elements into the workspace ...
+    fld    st1                                   ; FPU: src1 src0 src1
+    fstp   dword [{{.WRK}}]                      ; FPU: src0 src1       .WRK: 4bytes(src1)
+    fst    dword [{{.WRK}}+4]                    ; FPU: src0 src1       .WRK: 4bytes(src1) 4bytes(src0)
+    ; qm210: ... so we can assemble the partial result on the FPU stack.
+    fld    dword [{{.Input "illogic" "st0"}}]    ; FPU: gain0 src0 src1
+    fmulp  st1                                   ; FPU: (gain0*src0) src1
+    fxch                                         ; FPU: src1 (gain0*src0)
+    fld    dword [{{.Input "illogic" "st1"}}]    ; FPU: gain1 src1 (gain0*src0)
+    fmulp  st1                                   ; FPU: (gain1*src1) (gain0*src0)
+    faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0) = input_mix
+    ; qm210: Now, seems like I can use eax and ecx for the logic operations...
+    mov    eax, dword [{{.WRK}}+4]
+    mov    ecx, dword [{{.WRK}}]
+    and    eax, ecx                              ; src0 AND src1
+    ; ... seems I cannot "fld" from a register direction -> go over the CPU stack
+    push   {{.AX}}
+    fild   dword [{{.SP}}]
+    pop    {{.AX}}
+    fld    dword [{{.Use (.Float 4.6566129e-10)}}]
+    fmulp  st1
+    fld    dword [{{.Input "illogic" "AND"}}]
+    fmulp  st1
+    faddp  st1                                   ; ((AND result) + input_mix)
+    ; now the OR (ecx is still there)
+     mov    eax, dword [{{.WRK}}+4]
+     or     eax, ecx                             ; CPU stack: (src1 OR src0)
+     push   {{.AX}}
+     fild   dword [{{.SP}}]
+     pop    {{.AX}}
+     fld    dword [{{.Use (.Float 4.6566129e-10)}}]
+     fmulp  st1
+     fld    dword [{{.Input "illogic" "OR"}}]
+     fmulp  st1
+     faddp  st1
+     ; same old for the XOR
+     mov    eax, dword [{{.WRK}}+4]
+     xor    eax, ecx
+     push   {{.AX}}                                ; CPU stack: (src1 XOR src0)
+     fild   dword [{{.SP}}]
+     pop    {{.AX}}
+     fld    dword [{{.Use (.Float 4.6566129e-10)}}]
+     fmulp  st1
+     fld    dword [{{.Input "illogic" "XOR"}}]
+     fmulp  st1
+     faddp  st1                                 ; FPU stack: (XOR result) + (OR result) + (AND result) + (input mix)
+    ret
+{{- end}}
+{{end}}
