@@ -81,6 +81,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   matches the compiled output better, as usually compiled intros output sound in
   floating point. This might be important if OS sound drivers apply some audio
   enhancemenets e.g. compressors to the audio.
+- Performance improvement: derived model that is useful for the UI is cached 
+  on each score/patch change instead of evaluated on each draw ([#176][p176])  
 
 ## [0.4.1]
 ### Added
