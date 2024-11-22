@@ -160,7 +160,7 @@ func (oe *OrderEditor) handleEvents(gtx C, t *Tracker) {
 			key.Filter{Focus: oe.scrollTable, Name: "Q"},
 			key.Filter{Focus: oe.scrollTable, Name: "R"},
 			key.Filter{Focus: oe.scrollTable, Name: "S"},
-			key.Filter{Focus: oe.scrollTable, Name: "T"},
+			key.Filter{Focus: oe.scrollTable, Name: "Preferences"},
 			key.Filter{Focus: oe.scrollTable, Name: "U"},
 			key.Filter{Focus: oe.scrollTable, Name: "V"},
 			key.Filter{Focus: oe.scrollTable, Name: "W"},
