@@ -19,15 +19,17 @@ import (
 )
 
 type ScrollTable struct {
-	ColTitleList *DragList
-	RowTitleList *DragList
-	Table        tracker.Table
-	focused      bool
-	requestFocus bool
-	cursorMoved  bool
-	eventFilters []event.Filter
-	drag         bool
-	dragID       pointer.ID
+	ColTitleList  *DragList
+	RowTitleList  *DragList
+	Table         tracker.Table
+	focused       bool
+	requestFocus  bool
+	cursorMoved   bool
+	eventFilters  []event.Filter
+	drag          bool
+	dragID        pointer.ID
+	contextMenu   Menu
+	contextAnchor Clickable
 }
 
 type ScrollTableStyle struct {
@@ -167,6 +169,9 @@ func (s *ScrollTableStyle) handleEvents(gtx layout.Context, p image.Point) {
 				s.ScrollTable.Table.SetCursor2(tracker.Point{X: int(x), Y: int(y)})
 				if e.Kind == pointer.Press && !e.Modifiers.Contain(key.ModShift) {
 					s.ScrollTable.Table.SetCursorFloat(x, y)
+					if e.Buttons.Contain(pointer.ButtonSecondary) {
+						s.ScrollTable.contextAnchor.Click()
+					}
 				}
 				s.ScrollTable.cursorMoved = true
 			case pointer.Release:

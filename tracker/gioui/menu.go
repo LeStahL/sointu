@@ -190,3 +190,19 @@ func (tr *Tracker) layoutMenu(gtx C, title string, clickable *Clickable, menu *M
 		return dims
 	}
 }
+
+func (tr *Tracker) layoutWithMenu(gtx C, child layout.Widget, clickable *Clickable, menu *Menu, width unit.Dp, items ...MenuItem) layout.Widget {
+	for clickable.Clicked(gtx) {
+		menu.Visible = true
+	}
+	m := PopupMenu(menu, tr.Theme.Shaper)
+	return func(gtx C) D {
+		defer op.Offset(image.Point{}).Push(gtx.Ops).Pop()
+		dims := child(gtx)
+		op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
+		gtx.Constraints.Max.X = gtx.Dp(width)
+		gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(300))
+		m.Layout(gtx, items...)
+		return dims
+	}
+}

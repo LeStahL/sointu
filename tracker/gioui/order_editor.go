@@ -2,6 +2,8 @@ package gioui
 
 import (
 	"fmt"
+	"gioui.org/text"
+	"golang.org/x/exp/shiny/materialdesign/icons"
 	"image"
 	"math"
 	"strconv"
@@ -14,7 +16,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"github.com/vsariola/sointu/tracker"
@@ -115,7 +116,39 @@ func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
 		paint.FillShape(gtx.Ops, color, clip.Rect{Min: image.Pt(1, 1), Max: image.Pt(gtx.Constraints.Min.X-1, gtx.Constraints.Min.X-1)}.Op())
 		paint.ColorOp{Color: patternTextColor}.Add(gtx.Ops)
 		defer op.Offset(image.Pt(0, -2)).Push(gtx.Ops).Pop()
-		widget.Label{Alignment: text.Middle}.Layout(gtx, t.Theme.Shaper, trackerFont, trackerFontSize, val, op.CallOp{})
+
+		innerWidget := func(gtx C) D {
+			return widget.Label{Alignment: text.Middle}.Layout(
+				gtx, t.Theme.Shaper, trackerFont, trackerFontSize, val, op.CallOp{},
+			)
+		}
+		cursor := oe.scrollTable.Table.Cursor()
+		if x == cursor.X && y == cursor.Y {
+			// this just demonstrates that there COULD be items.
+			fakeItems := []MenuItem{
+				{
+					Text:      "Test 1",
+					IconBytes: icons.ActionBackup,
+					Doer: tracker.Allow(func() {
+						fmt.Println("Test 1")
+					}),
+				},
+				{
+					Text:      "Test 2",
+					IconBytes: icons.Action3DRotation,
+					Doer: tracker.Allow(func() {
+						fmt.Println("Test 2")
+					}),
+				},
+			}
+			return t.layoutWithMenu(gtx,
+				innerWidget, &oe.scrollTable.contextAnchor, &oe.scrollTable.contextMenu, unit.Dp(200),
+				fakeItems...,
+			)(gtx)
+		} else {
+			innerWidget(gtx)
+		}
+
 		return D{Size: image.Pt(gtx.Dp(patternCellWidth), gtx.Dp(patternCellHeight))}
 	}
 
