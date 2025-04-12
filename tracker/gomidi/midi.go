@@ -107,8 +107,22 @@ func (m RTMIDIDevice) Open() error {
 	return nil
 }
 
-func (d RTMIDIDevice) String() string {
-	return d.in.String()
+func (m RTMIDIDevice) Toggle() (wasOpen bool, err error) {
+	// if closed, this is like Open, but closes an open device
+	wasOpen = m.context.HasDeviceOpen()
+	if wasOpen {
+		err = m.context.currentIn.Close()
+		if err == nil {
+			m.context.currentIn = nil
+		}
+	} else {
+		err = m.Open()
+	}
+	return wasOpen, err
+}
+
+func (m RTMIDIDevice) String() string {
+	return m.in.String()
 }
 
 func (c *RTMIDIContext) Close() {

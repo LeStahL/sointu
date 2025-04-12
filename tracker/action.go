@@ -482,8 +482,12 @@ func (m *Model) ExportFloat() Action { return Allow(func() { m.dialog = ExportFl
 func (m *Model) ExportInt16() Action { return Allow(func() { m.dialog = ExportInt16Explorer }) }
 func (m *Model) SelectMidiInput(item MIDIDevice) Action {
 	return Allow(func() {
-		if err := item.Open(); err == nil {
-			message := fmt.Sprintf("Opened MIDI device: %s", item)
+		if wasOpen, err := item.Toggle(); err == nil {
+			var toggled = "Opened"
+			if wasOpen {
+				toggled = "Closed"
+			}
+			message := fmt.Sprintf("%s MIDI device: %s", toggled, item)
 			m.Alerts().Add(message, Info)
 		} else {
 			message := fmt.Sprintf("Could not open MIDI device: %s", item)

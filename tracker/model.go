@@ -141,6 +141,7 @@ type (
 	MIDIDevice interface {
 		String() string
 		Open() error
+		Toggle() (bool, error)
 	}
 )
 
