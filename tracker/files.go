@@ -149,8 +149,8 @@ func (m *Model) LoadInstrument(r io.ReadCloser) bool {
 	}
 	patch, err4kp = sointu.Read4klangPatch(bytes.NewReader(b))
 	if err4kp == nil {
-		defer m.change("LoadInstrument", PatchChange, MajorChange)()
-		m.d.Song.Patch = patch
+		defer m.change("LoadInstrument", SongChange, MajorChange)()
+		m.replaceFrom4kp(patch)
 		return true
 	}
 	instrument, err4ki = sointu.Read4klangInstrument(bytes.NewReader(b))
@@ -185,4 +185,18 @@ success:
 		m.commentExpanded = true
 	}
 	return true
+}
+
+func (m *Model) replaceFrom4kp(patch sointu.Patch) {
+	m.d.Song.Patch = patch
+	// We want tracks for every added instrument, otherwise we cannot easily listen presets.
+	if m.linkInstrTrack {
+		m.d.Song.Score.Tracks = m.d.Song.Score.Tracks[:0]
+		for index, instr := range patch {
+			voiceIndex := m.d.Song.Patch.FirstVoiceForInstrument(index)
+			p := sointu.Patch{instr.Copy()}
+			t := []sointu.Track{{NumVoices: instr.NumVoices}}
+			m.addVoices(voiceIndex, p, t, false, true)
+		}
+	}
 }
