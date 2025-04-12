@@ -38,17 +38,18 @@ by MIDI (i.e. while not recording). ([#170][i170])
 - Include version info in the binaries, as given be `git describe`. This version
   info is shown as a label in the tracker and can be checked with `-v` flag in
   the command line tools.
-- If a parameter is controlled by a `send`, the slider is now colored
-  differently and there's a tooltip over the value to see where it comes from
-  and its amount ([#176][i176])
-- If a parameter has an invalid value (for now only `port` of a `send`), value
-  is printed grey ([#176][i176])
 - Performance improvement: values needed by the UI that are derived from the
   score or patch are cached when score or patch changes, so they don't have to
   be computed every draw. ([#176][i176])
 - New unit `atan` to apply the arcus tangens (useful for soft clipping)
 - New unit `envelopexp` that is a modification of `envelope` with curved
   attack/decay shape
+- If a parameter is controlled by a `send`, the slider is now colored differently
+  and there's a tooltip over the value to see where it comes from and its amount
+  ([#176][p176])
+- If a parameter has an invalid value (for now only `port` of a `send`),
+  value is printed grey ([#176][p176])
+- "Multi-Unit View" to see all units as column next to each other ([#173][i173])
 
 ### Fixed
 - We try to honor the MIDI event time stamps, so that the timing between MIDI
@@ -89,6 +90,8 @@ by MIDI (i.e. while not recording). ([#170][i170])
   matches the compiled output better, as usually compiled intros output sound in
   floating point. This might be important if OS sound drivers apply some audio
   enhancemenets e.g. compressors to the audio.
+- Performance improvement: derived model that is useful for the UI is cached
+  on each score/patch change instead of evaluated on each draw ([#176][p176])
 
 ## [0.4.1]
 ### Added
