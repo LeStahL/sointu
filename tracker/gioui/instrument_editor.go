@@ -392,7 +392,7 @@ func (ie *InstrumentEditor) layoutUnitList(gtx C, t *Tracker) D {
 	if ie.searchEditor.requestFocus {
 		// for now, only the searchEditor has its requestFocus flag
 		ie.searchEditor.requestFocus = false
-		gtx.Execute(key.FocusCmd{Tag: ie.searchEditor.Editor})
+		gtx.Execute(key.FocusCmd{Tag: &ie.searchEditor.Editor})
 	}
 
 	element := func(gtx C, i int) D {
