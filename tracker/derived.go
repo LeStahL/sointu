@@ -164,7 +164,7 @@ func (m *Model) CurrentPlayerConstraints() PlayerProcessConstraints {
 
 func (m *Model) currentDerivedForTrack() (derivedForTrack, bool) {
 	currentTrack := m.d.Cursor.Track
-	if currentTrack > len(m.derived.forTrack) {
+	if currentTrack >= len(m.derived.forTrack) {
 		return derivedForTrack{}, false
 	}
 	return m.derived.forTrack[currentTrack], true

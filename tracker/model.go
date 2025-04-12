@@ -575,7 +575,10 @@ func clamp(a, min, max int) int {
 }
 
 func (m *Model) applyTrackInput(trackInput TrackInput) {
-	c := Point{m.d.Cursor.Track, m.d.Cursor.SongPos.PatternRow}
+	c := Point{
+		m.d.Cursor.Track,
+		m.d.Cursor.SongPos.OrderRow*m.d.Song.Score.RowsPerPattern + m.d.Cursor.SongPos.PatternRow,
+	}
 	availableIndices := m.CountNextTracksForCurrentInstrument()
 	for i, note := range trackInput.Notes {
 		m.Notes().SetValue(c, note)
