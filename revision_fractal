@@ -1,0 +1,91 @@
+bpm: 100
+rowsperbeat: 4
+score:
+    tracks:
+        - numvoices: 1
+          order: [0, 0, 0, 0, 0, 0, 0, 0, 0]
+          patterns: [[55, 0, 1, 1, 55, 0, 1, 1, 55, 0, 1, 1, 55, 0]]
+        - numvoices: 1
+          order: []
+          patterns: []
+    rowsperpattern: 16
+    length: 9
+patch:
+    - name: qm_kik
+      numvoices: 1
+      units:
+        - type: envelope
+          id: 103
+          parameters: {attack: 0, decay: 29, gain: 128, release: 78, stereo: 0, sustain: 106}
+        - type: send
+          id: 104
+          parameters: {amount: 128, port: 4, sendpop: 0, target: 103}
+        - type: envelope
+          id: 105
+          parameters: {attack: 0, decay: 64, gain: 128, release: 106, stereo: 0, sustain: 48}
+          disabled: true
+        - type: envelopexp
+          id: 114
+          parameters: {attack: 0, decay: 64, exp_attack: 61, exp_decay: 89, gain: 128, release: 121, stereo: 0, sustain: 42}
+        - type: distort
+          id: 106
+          parameters: {drive: 31, stereo: 0}
+        - type: hold
+          id: 107
+          parameters: {holdfreq: 128, stereo: 0}
+        - type: send
+          id: 108
+          parameters: {amount: 77, port: 0, sendpop: 0, target: 110}
+        - type: pop
+          id: 109
+          parameters: {stereo: 0}
+        - type: oscillator
+          id: 110
+          parameters: {color: 128, detune: 64, gain: 128, lfo: 0, phase: 32, shape: 66, stereo: 0, transpose: 45, type: 0}
+        - type: filter
+          id: 115
+          parameters: {bandpass: 0, frequency: 18, highpass: 0, lowpass: 1, negbandpass: 0, neghighpass: 0, resonance: 110, stereo: 0}
+        - type: mulp
+          id: 111
+          parameters: {stereo: 0}
+        - type: pan
+          id: 112
+          parameters: {panning: 64, stereo: 0}
+        - type: outaux
+          id: 113
+          parameters: {auxgain: 0, outgain: 64, stereo: 1}
+    - name: qm_bas
+      numvoices: 1
+      units:
+        - type: envelope
+          id: 116
+          parameters: {attack: 64, decay: 64, gain: 64, release: 64, stereo: 0, sustain: 64}
+        - type: oscillator
+          id: 117
+          parameters: {color: 64, detune: 64, gain: 64, phase: 0, shape: 64, stereo: 0, transpose: 64, type: 0}
+        - type: mulp
+          id: 118
+          parameters: {stereo: 0}
+        - type: delay
+          id: 119
+          parameters: {damp: 0, dry: 128, feedback: 96, notetracking: 2, pregain: 40, stereo: 0}
+          varargs: [48]
+        - type: pan
+          id: 120
+          parameters: {panning: 64, stereo: 0}
+        - type: outaux
+          id: 121
+          parameters: {auxgain: 64, outgain: 64, stereo: 1}
+    - name: Global
+      numvoices: 1
+      units:
+        - type: in
+          id: 7
+          parameters: {channel: 2, stereo: 1}
+        - type: delay
+          id: 8
+          parameters: {damp: 64, dry: 128, feedback: 125, notetracking: 0, pregain: 40, stereo: 1}
+          varargs: [1116, 1188, 1276, 1356, 1422, 1492, 1556, 1618, 1140, 1212, 1300, 1380, 1446, 1516, 1580, 1642]
+        - type: out
+          id: 9
+          parameters: {gain: 128, stereo: 1}
