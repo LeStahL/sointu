@@ -95,6 +95,16 @@ func (m *Model) TrackTitle(index int) string {
 	return m.derived.forTrack[index].title
 }
 
+func (m *Model) LongestTrackTitle() string {
+	result := ""
+	for _, track := range m.derived.forTrack {
+		if len(track.title) > len(result) {
+			result = track.title
+		}
+	}
+	return result
+}
+
 func (m *Model) PatternUseCount(index int) []int {
 	if index < 0 || index > len(m.derived.forPattern) {
 		return nil

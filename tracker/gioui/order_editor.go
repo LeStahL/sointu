@@ -64,19 +64,29 @@ func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
 	defer clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops).Pop()
 	event.Op(gtx.Ops, &oe.tag)
 
+	titleHeight := gtx.Dp(orderTitleHeight)
+	longestTitle := t.Model.LongestTrackTitle()
+	if len(longestTitle) > 8 {
+		// the default value cuts "Instrume" off. That's not good.
+		titleHeight += int(float32(titleHeight) * (float32(len(longestTitle))/8 - 1))
+	}
+
 	colTitle := func(gtx C, i int) D {
-		h := gtx.Dp(orderTitleHeight)
 		defer op.Offset(image.Pt(0, -2)).Push(gtx.Ops).Pop()
-		defer op.Affine(f32.Affine2D{}.Rotate(f32.Pt(0, 0), -90*math.Pi/180).Offset(f32.Point{X: 0, Y: float32(h)})).Push(gtx.Ops).Pop()
+		defer op.Affine(
+			f32.Affine2D{}.Rotate(
+				f32.Pt(0, 0), -90*math.Pi/180).Offset(f32.Point{X: 0, Y: float32(titleHeight)}),
+		).Push(gtx.Ops).Pop()
 		gtx.Constraints = layout.Exact(image.Pt(1e6, 1e6))
-		LabelStyle{
+		label := LabelStyle{
 			Direction: layout.NW,
 			Text:      t.Model.TrackTitle(i),
 			FontSize:  unit.Sp(12),
 			Color:     mediumEmphasisTextColor,
 			Shaper:    t.Theme.Shaper,
 		}.Layout(gtx)
-		return D{Size: image.Pt(gtx.Dp(patternCellWidth), h)}
+		_ = label
+		return D{Size: image.Pt(gtx.Dp(patternCellWidth), titleHeight)}
 	}
 
 	rowTitleBg := func(gtx C, j int) D {
@@ -153,7 +163,7 @@ func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
 	}
 
 	table := FilledScrollTable(t.Theme, oe.scrollTable, cell, colTitle, rowTitle, nil, rowTitleBg)
-	table.ColumnTitleHeight = orderTitleHeight
+	table.ColumnTitleHeight = unit.Dp(titleHeight)
 
 	return table.Layout(gtx)
 }
