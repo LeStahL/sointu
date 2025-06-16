@@ -651,6 +651,8 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 				}
 			case opSync:
 				break
+			case opEnvelopexp, opAtan, opIllogic, opSignlogic:
+				stack = processUnits210(stack, unit, opNoStereo, stereo, params, voices)
 			default:
 				return samples, renderTime, errors.New("invalid / unimplemented opcode")
 			}
