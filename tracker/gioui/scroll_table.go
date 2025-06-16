@@ -14,7 +14,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/unit"
-	"gioui.org/widget/material"
 	"github.com/vsariola/sointu/tracker"
 )
 
@@ -22,7 +21,6 @@ type ScrollTable struct {
 	ColTitleList *DragList
 	RowTitleList *DragList
 	Table        tracker.Table
-	focused      bool
 	requestFocus bool
 	cursorMoved  bool
 	eventFilters []event.Filter
@@ -72,12 +70,11 @@ func NewScrollTable(table tracker.Table, vertList, horizList tracker.List) *Scro
 	return ret
 }
 
-func FilledScrollTable(th *material.Theme, scrollTable *ScrollTable, element func(gtx C, x, y int) D, colTitle, rowTitle, colTitleBg, rowTitleBg func(gtx C, i int) D) ScrollTableStyle {
+func FilledScrollTable(th *Theme, scrollTable *ScrollTable) ScrollTableStyle {
 	return ScrollTableStyle{
-		RowTitleStyle:     FilledDragList(th, scrollTable.RowTitleList, rowTitle, rowTitleBg),
-		ColTitleStyle:     FilledDragList(th, scrollTable.ColTitleList, colTitle, colTitleBg),
+		RowTitleStyle:     FilledDragList(th, scrollTable.RowTitleList),
+		ColTitleStyle:     FilledDragList(th, scrollTable.ColTitleList),
 		ScrollTable:       scrollTable,
-		element:           element,
 		ScrollBarWidth:    unit.Dp(14),
 		RowTitleWidth:     unit.Dp(30),
 		ColumnTitleHeight: unit.Dp(16),
@@ -96,8 +93,8 @@ func (st *ScrollTable) Focus() {
 	st.requestFocus = true
 }
 
-func (st *ScrollTable) Focused() bool {
-	return st.focused
+func (st *ScrollTable) Focused(gtx C) bool {
+	return gtx.Source.Focused(st)
 }
 
 func (st *ScrollTable) EnsureCursorVisible() {
@@ -105,25 +102,25 @@ func (st *ScrollTable) EnsureCursorVisible() {
 	st.RowTitleList.EnsureVisible(st.Table.Cursor().Y)
 }
 
-func (st *ScrollTable) ChildFocused() bool {
-	return st.ColTitleList.Focused() || st.RowTitleList.Focused()
+func (st *ScrollTable) ChildFocused(gtx C) bool {
+	return st.ColTitleList.Focused(gtx) || st.RowTitleList.Focused(gtx)
 }
 
-func (s ScrollTableStyle) Layout(gtx C) D {
+func (s ScrollTableStyle) Layout(gtx C, element func(gtx C, x, y int) D, colTitle, rowTitle, colTitleBg, rowTitleBg func(gtx C, i int) D) D {
 	defer clip.Rect(image.Rectangle{Max: gtx.Constraints.Max}).Push(gtx.Ops).Pop()
 	event.Op(gtx.Ops, s.ScrollTable)
 
 	p := image.Pt(gtx.Dp(s.RowTitleWidth), gtx.Dp(s.ColumnTitleHeight))
 	s.handleEvents(gtx, p)
 
-	return Surface{Gray: 24, Focus: s.ScrollTable.Focused() || s.ScrollTable.ChildFocused()}.Layout(gtx, func(gtx C) D {
+	return Surface{Gray: 24, Focus: s.ScrollTable.Focused(gtx) || s.ScrollTable.ChildFocused(gtx)}.Layout(gtx, func(gtx C) D {
 		defer clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops).Pop()
 		dims := gtx.Constraints.Max
-		s.layoutColTitles(gtx, p)
-		s.layoutRowTitles(gtx, p)
+		s.layoutColTitles(gtx, p, colTitle, colTitleBg)
+		s.layoutRowTitles(gtx, p, rowTitle, rowTitleBg)
 		defer op.Offset(p).Push(gtx.Ops).Pop()
 		gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X-p.X, gtx.Constraints.Max.Y-p.Y))
-		s.layoutTable(gtx)
+		s.layoutTable(gtx, element)
 		s.RowTitleStyle.LayoutScrollBar(gtx)
 		s.ColTitleStyle.LayoutScrollBar(gtx)
 		return D{Size: dims}
@@ -137,8 +134,6 @@ func (s *ScrollTableStyle) handleEvents(gtx layout.Context, p image.Point) {
 			break
 		}
 		switch e := e.(type) {
-		case key.FocusEvent:
-			s.ScrollTable.focused = e.Focus
 		case pointer.Event:
 			switch e.Kind {
 			case pointer.Press:
@@ -210,7 +205,7 @@ func (s *ScrollTableStyle) handleEvents(gtx layout.Context, p image.Point) {
 	}
 }
 
-func (s ScrollTableStyle) layoutTable(gtx C) {
+func (s ScrollTableStyle) layoutTable(gtx C, element func(gtx C, x, y int) D) {
 	defer clip.Rect(image.Rectangle{Max: gtx.Constraints.Min}).Push(gtx.Ops).Pop()
 
 	if s.ScrollTable.requestFocus {
@@ -228,26 +223,26 @@ func (s ScrollTableStyle) layoutTable(gtx C) {
 	for x := 0; x < colP.Count; x++ {
 		for y := 0; y < rowP.Count; y++ {
 			o := op.Offset(image.Pt(cellWidth*x, cellHeight*y)).Push(gtx.Ops)
-			s.element(gtx, x+colP.First, y+rowP.First)
+			element(gtx, x+colP.First, y+rowP.First)
 			o.Pop()
 		}
 	}
 }
 
-func (s *ScrollTableStyle) layoutRowTitles(gtx C, p image.Point) {
+func (s *ScrollTableStyle) layoutRowTitles(gtx C, p image.Point, fg, bg func(gtx C, i int) D) {
 	defer op.Offset(image.Pt(0, p.Y)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Min.X = p.X
 	gtx.Constraints.Max.Y -= p.Y
 	gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
-	s.RowTitleStyle.Layout(gtx)
+	s.RowTitleStyle.Layout(gtx, fg, bg)
 }
 
-func (s *ScrollTableStyle) layoutColTitles(gtx C, p image.Point) {
+func (s *ScrollTableStyle) layoutColTitles(gtx C, p image.Point, fg, bg func(gtx C, i int) D) {
 	defer op.Offset(image.Pt(p.X, 0)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Min.Y = p.Y
 	gtx.Constraints.Max.X -= p.X
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	s.ColTitleStyle.Layout(gtx)
+	s.ColTitleStyle.Layout(gtx, fg, bg)
 }
 
 func (s *ScrollTable) command(gtx C, e key.Event) {

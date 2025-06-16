@@ -5,11 +5,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/vsariola/sointu"
 	"github.com/vsariola/sointu/vm"
-	"gopkg.in/yaml.v3"
+	"gopkg.in/yaml.v2"
 )
 
 //go:generate go run generate/main.go
@@ -141,22 +143,22 @@ func NumPresets() int {
 
 // LoadPreset loads a preset from the list of instrument presets. The index
 // should be within the range of 0 to NumPresets()-1.
+
 func (m *Model) LoadPreset(index int) Action {
-	return Action{do: func() {
-		defer m.change("LoadPreset", PatchChange, MajorChange)()
-		if m.d.InstrIndex < 0 {
-			m.d.InstrIndex = 0
-		}
-		m.d.InstrIndex2 = m.d.InstrIndex
-		for m.d.InstrIndex >= len(m.d.Song.Patch) {
-			m.d.Song.Patch = append(m.d.Song.Patch, defaultInstrument.Copy())
-		}
-		newInstr := instrumentPresets[index].Copy()
-		(*Model)(m).assignUnitIDs(newInstr.Units)
-		m.d.Song.Patch[m.d.InstrIndex] = newInstr
-	}, allowed: func() bool {
-		return true
-	}}
+	return MakeEnabledAction(LoadPreset{Index: index, Model: m})
+}
+func (m LoadPreset) Do() {
+	defer m.change("LoadPreset", PatchChange, MajorChange)()
+	if m.d.InstrIndex < 0 {
+		m.d.InstrIndex = 0
+	}
+	m.d.InstrIndex2 = m.d.InstrIndex
+	for m.d.InstrIndex >= len(m.d.Song.Patch) {
+		m.d.Song.Patch = append(m.d.Song.Patch, defaultInstrument.Copy())
+	}
+	newInstr := instrumentPresets[m.Index].Copy()
+	m.Model.assignUnitIDs(newInstr.Units)
+	m.d.Song.Patch[m.d.InstrIndex] = newInstr
 }
 
 type instrumentPresetsSlice []sointu.Instrument
@@ -178,7 +180,11 @@ func init() {
 			return nil
 		}
 		var instr sointu.Instrument
-		if yaml.Unmarshal(data, &instr) == nil {
+		if yaml.UnmarshalStrict(data, &instr) == nil {
+			noExt := path[:len(path)-len(filepath.Ext(path))]
+			splitted := splitPath(noExt)
+			splitted = splitted[1:] // remove "presets" from the path
+			instr.Name = strings.Join(splitted, " ")
 			instrumentPresets = append(instrumentPresets, instr)
 		}
 		return nil
@@ -198,12 +204,44 @@ func init() {
 			}
 			var instr sointu.Instrument
 			if yaml.Unmarshal(data, &instr) == nil {
+				if len(userPresets)+1 > len(path) {
+					return nil
+				}
+				subPath := path[len(userPresets)+1:]
+				noExt := subPath[:len(subPath)-len(filepath.Ext(subPath))]
+				splitted := splitPath(noExt)
+				instr.Name = strings.Join(splitted, " ")
 				instrumentPresets = append(instrumentPresets, instr)
 			}
 			return nil
 		})
 	}
 	sort.Sort(instrumentPresets)
+}
+
+func splitPath(path string) []string {
+	subPath := path
+	var result []string
+	for {
+		subPath = filepath.Clean(subPath) // Amongst others, removes trailing slashes (except for the root directory).
+
+		dir, last := filepath.Split(subPath)
+		if last == "" {
+			if dir != "" { // Root directory.
+				result = append(result, dir)
+			}
+			break
+		}
+		result = append(result, last)
+
+		if dir == "" { // Nothing to split anymore.
+			break
+		}
+		subPath = dir
+	}
+
+	slices.Reverse(result)
+	return result
 }
 
 func (p instrumentPresetsSlice) Len() int           { return len(p) }

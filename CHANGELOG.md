@@ -5,8 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
-- The loudness detection is now LUFS and peak detection is based on oversampled
-  true peak detection
+- Theme can be user configured, in theme.yml. This theme.yml should be placed in
+  the usual sointu config directory (i.e.
+  `os.UserConfigDir()/sointu/theme.yml`). See
+  [theme.yml](tracker/gioui/theme.yml) for the default theme, and
+  [theme.go](tracker/gioui/theme.go) for what can be changed.
+- Ctrl + scroll wheel adjusts the global scaling of the GUI ([#153][i153])
+- The loudness detection supports LUFS, A-weighting, C-weighting or
+  RMS-weighting, and peak detection supports true peak or sample peak detection.
+  The loudness and peak values are displayed in the song panel ([#186][i186])
 - Oscilloscope to visualize the outputted waveform ([#61][i61])
 - Toggle button to keep instruments and tracks linked, and buttons to to split
   instruments and tracks with more than 1 voice into parallel ones
@@ -16,8 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Dragging mouse to select rectangles in the tables
 - The standalone tracker can open a MIDI port for receiving MIDI notes
   ([#166][i166])
-- The note editor has a button to allow entering notes by MIDI. Polyphony is
-  supported if there are tracks available. ([#170][i170])
+- The note editor has a button to allow entering notes by MIDI. ([#170][i170])
 - Units can have comments, to make it easier to distinguish between units of
   same type within an instrument. These comments are also shown when choosing
   the send target. ([#114][i114])
@@ -45,6 +51,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   be computed every draw. ([#176][i176])
 
 ### Fixed
+- BREAKING CHANGE: always first modulate delay time, then apply notetracking. In
+  a delay unit, modulation adds to the delay time, while note tracking
+  multiplies it with a multiplier dependent on the note. The order of these
+  operations was different in the Go VM vs. x86 VM & WebAssembly VM. In the Go
+  VM, it first modulated, and then applied the note tracking multiplication. In
+  the two assembly VMs, it first applied the note tracking and then modulated.
+  Of these two behaviours, the Go VM behaviour made more sense: if you make a
+  vibrato of +-50 cents for C4, you probably want a vibrato of +-50 cents for C6
+  also. Thus, first modulating and then applying the note tracking
+  multiplication is now the behaviour accross all VMs.
+- Loading instrument forgot to close the file (in model.ReadInstrument)
 - We try to honor the MIDI event time stamps, so that the timing between MIDI
   events (as reported to us by RTMIDI) will be correct.
 - When unmarshaling the recovery file, the unit parameter maps were "merged"
@@ -76,6 +93,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   ([#156][i156])
 
 ### Changed
+- The maximum number of delaylines in the native synth was increased to 128,
+  with slight increase in memory usage ([#155][i155])
+- The numeric updown widget has a new appearance.
+- The draggable UI splitters snap more controllably to the window edges.
+- New & better presets, organized by their type to subfolders (thanks Reaby!)
+  ([#136][i136])
+- Presets get their name by concatenating their subdirectory path (with path
+  separators replaced with spaces) to their filename
 - The keyboard shortcuts are now again closer to what they were old trackers
   ([#151][i151])
 - The stand-alone apps now output floating point sound, as made possible by
@@ -283,6 +308,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i128]: https://github.com/vsariola/sointu/issues/128
 [i129]: https://github.com/vsariola/sointu/issues/129
 [i130]: https://github.com/vsariola/sointu/issues/130
+[i136]: https://github.com/vsariola/sointu/issues/136
 [i139]: https://github.com/vsariola/sointu/issues/139
 [i142]: https://github.com/vsariola/sointu/issues/142
 [i144]: https://github.com/vsariola/sointu/issues/144
@@ -292,7 +318,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i149]: https://github.com/vsariola/sointu/issues/149
 [i150]: https://github.com/vsariola/sointu/issues/150
 [i151]: https://github.com/vsariola/sointu/issues/151
+[i153]: https://github.com/vsariola/sointu/issues/153
 [i154]: https://github.com/vsariola/sointu/issues/154
+[i155]: https://github.com/vsariola/sointu/issues/155
 [i156]: https://github.com/vsariola/sointu/issues/156
 [i157]: https://github.com/vsariola/sointu/issues/157
 [i158]: https://github.com/vsariola/sointu/issues/158
@@ -303,3 +331,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i168]: https://github.com/vsariola/sointu/issues/168
 [i170]: https://github.com/vsariola/sointu/issues/170
 [i176]: https://github.com/vsariola/sointu/issues/176
+[i186]: https://github.com/vsariola/sointu/issues/186

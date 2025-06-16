@@ -76,7 +76,7 @@ type NoteEditor struct {
 
 func NewNoteEditor(model *tracker.Model) *NoteEditor {
 	ret := &NoteEditor{
-		TrackVoices:         NewNumberInput(model.TrackVoices().Int()),
+		TrackVoices:         NewNumberInput(model.TrackVoices()),
 		NewTrackBtn:         NewActionClickable(model.AddTrack()),
 		DeleteTrackBtn:      NewActionClickable(model.DeleteTrack()),
 		SplitTrackBtn:       NewActionClickable(model.SplitTrack()),
@@ -85,9 +85,9 @@ func NewNoteEditor(model *tracker.Model) *NoteEditor {
 		AddOctaveBtn:        NewActionClickable(model.AddOctave()),
 		SubtractOctaveBtn:   NewActionClickable(model.SubtractOctave()),
 		NoteOffBtn:          NewActionClickable(model.EditNoteOff()),
-		EffectBtn:           NewBoolClickable(model.Effect().Bool()),
-		UniqueBtn:           NewBoolClickable(model.UniquePatterns().Bool()),
-		TrackMidiInBtn:      NewBoolClickable(model.TrackMidiIn().Bool()),
+		EffectBtn:           NewBoolClickable(model.Effect()),
+		UniqueBtn:           NewBoolClickable(model.UniquePatterns()),
+		TrackMidiInBtn:      NewBoolClickable(model.TrackMidiIn()),
 		scrollTable: NewScrollTable(
 			model.Notes().Table(),
 			model.Tracks().List(),
@@ -114,6 +114,10 @@ func NewNoteEditor(model *tracker.Model) *NoteEditor {
 	return ret
 }
 
+func (te *NoteEditor) Focused(gtx C) bool {
+	return te.scrollTable.Focused(gtx) || te.scrollTable.ChildFocused(gtx)
+}
+
 func (te *NoteEditor) Layout(gtx layout.Context, t *Tracker) layout.Dimensions {
 	for {
 		e, ok := gtx.Event(te.eventFilters...)
@@ -123,20 +127,30 @@ func (te *NoteEditor) Layout(gtx layout.Context, t *Tracker) layout.Dimensions {
 		switch e := e.(type) {
 		case key.Event:
 			if e.State == key.Release {
-				if noteID, ok := t.KeyPlaying[e.Name]; ok {
-					noteID.NoteOff()
-					delete(t.KeyPlaying, e.Name)
-				}
+				t.KeyNoteMap.Release(e.Name)
 				continue
 			}
 			te.command(t, e)
 		}
 	}
 
+	for te.Focused(gtx) && len(t.noteEvents) > 0 {
+		ev := t.noteEvents[0]
+		ev.IsTrack = true
+		ev.Channel = t.Model.Notes().Cursor().X
+		ev.Source = te
+		if ev.On {
+			t.Model.Notes().Input(ev.Note)
+		}
+		copy(t.noteEvents, t.noteEvents[1:])
+		t.noteEvents = t.noteEvents[:len(t.noteEvents)-1]
+		tracker.TrySend(t.Broker().ToPlayer, any(ev))
+	}
+
 	defer op.Offset(image.Point{}).Push(gtx.Ops).Pop()
 	defer clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops).Pop()
 
-	return Surface{Gray: 24, Focus: te.scrollTable.Focused()}.Layout(gtx, func(gtx C) D {
+	return Surface{Gray: 24, Focus: te.scrollTable.Focused(gtx)}.Layout(gtx, func(gtx C) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx C) D {
 				return te.layoutButtons(gtx, t)
@@ -149,17 +163,20 @@ func (te *NoteEditor) Layout(gtx layout.Context, t *Tracker) layout.Dimensions {
 }
 
 func (te *NoteEditor) layoutButtons(gtx C, t *Tracker) D {
-	return Surface{Gray: 37, Focus: te.scrollTable.Focused() || te.scrollTable.ChildFocused(), FitSize: true}.Layout(gtx, func(gtx C) D {
-		addSemitoneBtnStyle := ActionButton(gtx, t.Theme, te.AddSemitoneBtn, "+1")
-		subtractSemitoneBtnStyle := ActionButton(gtx, t.Theme, te.SubtractSemitoneBtn, "-1")
-		addOctaveBtnStyle := ActionButton(gtx, t.Theme, te.AddOctaveBtn, "+12")
-		subtractOctaveBtnStyle := ActionButton(gtx, t.Theme, te.SubtractOctaveBtn, "-12")
-		noteOffBtnStyle := ActionButton(gtx, t.Theme, te.NoteOffBtn, "Note Off")
+	return Surface{Gray: 37, Focus: te.scrollTable.Focused(gtx) || te.scrollTable.ChildFocused(gtx)}.Layout(gtx, func(gtx C) D {
+		addSemitoneBtnStyle := ActionButton(gtx, t.Theme, &t.Theme.Button.Text, te.AddSemitoneBtn, "+1")
+		subtractSemitoneBtnStyle := ActionButton(gtx, t.Theme, &t.Theme.Button.Text, te.SubtractSemitoneBtn, "-1")
+		addOctaveBtnStyle := ActionButton(gtx, t.Theme, &t.Theme.Button.Text, te.AddOctaveBtn, "+12")
+		subtractOctaveBtnStyle := ActionButton(gtx, t.Theme, &t.Theme.Button.Text, te.SubtractOctaveBtn, "-12")
+		noteOffBtnStyle := ActionButton(gtx, t.Theme, &t.Theme.Button.Text, te.NoteOffBtn, "Note Off")
 		deleteTrackBtnStyle := ActionIcon(gtx, t.Theme, te.DeleteTrackBtn, icons.ActionDelete, te.deleteTrackHint)
 		splitTrackBtnStyle := ActionIcon(gtx, t.Theme, te.SplitTrackBtn, icons.CommunicationCallSplit, te.splitTrackHint)
 		newTrackBtnStyle := ActionIcon(gtx, t.Theme, te.NewTrackBtn, icons.ContentAdd, te.addTrackHint)
-		voiceUpDown := NumericUpDown(t.Theme, te.TrackVoices, "Number of voices for this track")
-		voiceUpDown.Padding = unit.Dp(1)
+		in := layout.UniformInset(unit.Dp(1))
+		voiceUpDown := func(gtx C) D {
+			numStyle := NumUpDown(t.Theme, te.TrackVoices, "Track voices")
+			return in.Layout(gtx, numStyle.Layout)
+		}
 		effectBtnStyle := ToggleButton(gtx, t.Theme, te.EffectBtn, "Hex")
 		uniqueBtnStyle := ToggleIcon(gtx, t.Theme, te.UniqueBtn, icons.ToggleStarBorder, icons.ToggleStar, te.uniqueOffTip, te.uniqueOnTip)
 		midiInBtnStyle := ToggleButton(gtx, t.Theme, te.TrackMidiInBtn, "MIDI")
@@ -172,8 +189,10 @@ func (te *NoteEditor) layoutButtons(gtx C, t *Tracker) D {
 			layout.Rigid(noteOffBtnStyle.Layout),
 			layout.Rigid(effectBtnStyle.Layout),
 			layout.Rigid(uniqueBtnStyle.Layout),
-			layout.Rigid(Label("  Voices:", white, t.Theme.Shaper)),
-			layout.Rigid(voiceUpDown.Layout),
+			layout.Rigid(layout.Spacer{Width: 10}.Layout),
+			layout.Rigid(Label(t.Theme, &t.Theme.NoteEditor.Header, "Voices").Layout),
+			layout.Rigid(layout.Spacer{Width: 4}.Layout),
+			layout.Rigid(voiceUpDown),
 			layout.Rigid(splitTrackBtnStyle.Layout),
 			layout.Flexed(1, func(gtx C) D { return layout.Dimensions{Size: gtx.Constraints.Min} }),
 			layout.Rigid(OnlyIf(t.HasAnyMidiInput(), midiInBtnStyle.Layout)),
@@ -219,27 +238,25 @@ func (te *NoteEditor) layoutTracks(gtx C, t *Tracker) D {
 	colTitle := func(gtx C, i int) D {
 		h := gtx.Dp(trackColTitleHeight)
 		gtx.Constraints = layout.Exact(image.Pt(pxWidth, h))
-		LabelStyle{
-			Alignment: layout.N,
-			Text:      t.Model.TrackTitle(i),
-			FontSize:  unit.Sp(12),
-			Color:     mediumEmphasisTextColor,
-			Shaper:    t.Theme.Shaper,
-		}.Layout(gtx)
+		Label(t.Theme, &t.Theme.NoteEditor.TrackTitle, t.Model.TrackTitle(i)).Layout(gtx)
 		return D{Size: image.Pt(pxWidth, h)}
 	}
 
 	rowTitleBg := func(gtx C, j int) D {
 		if mod(j, beatMarkerDensity*2) == 0 {
-			paint.FillShape(gtx.Ops, twoBeatHighlight, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, pxHeight)}.Op())
+			paint.FillShape(gtx.Ops, t.Theme.NoteEditor.TwoBeat, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, pxHeight)}.Op())
 		} else if mod(j, beatMarkerDensity) == 0 {
-			paint.FillShape(gtx.Ops, oneBeatHighlight, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, pxHeight)}.Op())
+			paint.FillShape(gtx.Ops, t.Theme.NoteEditor.OneBeat, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, pxHeight)}.Op())
 		}
-		if t.SongPanel.PlayingBtn.Bool.Value() && j == playSongRow {
-			paint.FillShape(gtx.Ops, trackerPlayColor, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, pxHeight)}.Op())
+		if t.Model.Playing().Value() && j == playSongRow {
+			paint.FillShape(gtx.Ops, t.Theme.NoteEditor.Play, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, pxHeight)}.Op())
 		}
 		return D{}
 	}
+
+	orderRowOp := colorOp(gtx, t.Theme.NoteEditor.OrderRow.Color)
+	loopColorOp := colorOp(gtx, t.Theme.OrderEditor.Loop)
+	patternRowOp := colorOp(gtx, t.Theme.NoteEditor.PatternRow.Color)
 
 	rowTitle := func(gtx C, j int) D {
 		rpp := max(t.RowsPerPattern().Value(), 1)
@@ -248,16 +265,14 @@ func (te *NoteEditor) layoutTracks(gtx C, t *Tracker) D {
 		w := pxPatMarkWidth + pxRowMarkWidth
 		defer op.Offset(image.Pt(0, -2)).Push(gtx.Ops).Pop()
 		if row == 0 {
-			color := rowMarkerPatternTextColor
+			op := orderRowOp
 			if l := t.Loop(); pat >= l.Start && pat < l.Start+l.Length {
-				color = loopMarkerColor
+				op = loopColorOp
 			}
-			paint.ColorOp{Color: color}.Add(gtx.Ops)
-			widget.Label{}.Layout(gtx, t.Theme.Shaper, trackerFont, trackerFontSize, strings.ToUpper(fmt.Sprintf("%02x", pat)), op.CallOp{})
+			widget.Label{}.Layout(gtx, t.Theme.Material.Shaper, t.Theme.NoteEditor.OrderRow.Font, t.Theme.NoteEditor.OrderRow.TextSize, strings.ToUpper(fmt.Sprintf("%02x", pat)), op)
 		}
 		defer op.Offset(image.Pt(pxPatMarkWidth, 0)).Push(gtx.Ops).Pop()
-		paint.ColorOp{Color: rowMarkerRowTextColor}.Add(gtx.Ops)
-		widget.Label{}.Layout(gtx, t.Theme.Shaper, trackerFont, trackerFontSize, strings.ToUpper(fmt.Sprintf("%02x", row)), op.CallOp{})
+		widget.Label{}.Layout(gtx, t.Theme.Material.Shaper, t.Theme.NoteEditor.PatternRow.Font, t.Theme.NoteEditor.PatternRow.TextSize, strings.ToUpper(fmt.Sprintf("%02x", row)), patternRowOp)
 		return D{Size: image.Pt(w, pxHeight)}
 	}
 
@@ -266,28 +281,32 @@ func (te *NoteEditor) layoutTracks(gtx C, t *Tracker) D {
 	selection := te.scrollTable.Table.Range()
 	hasTrackMidiIn := te.TrackMidiInBtn.Bool.Value()
 
+	patternNoOp := colorOp(gtx, t.Theme.NoteEditor.PatternNo.Color)
+	uniqueOp := colorOp(gtx, t.Theme.NoteEditor.Unique.Color)
+	noteOp := colorOp(gtx, t.Theme.NoteEditor.Note.Color)
+
 	cell := func(gtx C, x, y int) D {
 		// draw the background, to indicate selection
-		color := transparent
 		point := tracker.Point{X: x, Y: y}
 		if drawSelection && selection.Contains(point) {
-			color = inactiveSelectionColor
-			if te.scrollTable.Focused() {
-				color = selectionColor
+			color := t.Theme.Selection.Inactive
+			if te.scrollTable.Focused(gtx) {
+				color = t.Theme.Selection.Active
 			}
+			paint.FillShape(gtx.Ops, color, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(gtx.Constraints.Min.X, gtx.Constraints.Min.Y)}.Op())
 		}
-		paint.FillShape(gtx.Ops, color, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(gtx.Constraints.Min.X, gtx.Constraints.Min.Y)}.Op())
 		// draw the cursor
 		if point == cursor {
-			c := inactiveSelectionColor
-			if te.scrollTable.Focused() {
-				c = cursorColor
+			c := t.Theme.Cursor.Inactive
+			if te.scrollTable.Focused(gtx) {
+				c = t.Theme.Cursor.Active
 			}
 			if hasTrackMidiIn {
-				c = trackMidiInCurrentColor
+				c = t.Theme.Cursor.ActiveAlt
 			}
 			te.paintColumnCell(gtx, x, t, c, hasTrackMidiIn)
 		}
+
 		// draw the corresponding "fake cursors" for instrument-track-groups (for polyphony)
 		if hasTrackMidiIn && y == cursor.Y {
 			for _, trackIndex := range t.Model.TracksWithSameInstrumentAsCurrent() {
@@ -304,31 +323,31 @@ func (te *NoteEditor) layoutTracks(gtx C, t *Tracker) D {
 		defer op.Offset(image.Pt(0, -2)).Push(gtx.Ops).Pop()
 		s := t.Model.Order().Value(tracker.Point{X: x, Y: pat})
 		if row == 0 { // draw the pattern marker
-			paint.ColorOp{Color: trackerPatMarker}.Add(gtx.Ops)
-			widget.Label{}.Layout(gtx, t.Theme.Shaper, trackerFont, trackerFontSize, patternIndexToString(s), op.CallOp{})
+			widget.Label{}.Layout(gtx, t.Theme.Material.Shaper, t.Theme.NoteEditor.PatternNo.Font, t.Theme.NoteEditor.PatternNo.TextSize, patternIndexToString(s), patternNoOp)
 		}
 		if row == 1 && t.Model.PatternUnique(x, s) { // draw a * if the pattern is unique
-			paint.ColorOp{Color: mediumEmphasisTextColor}.Add(gtx.Ops)
-			widget.Label{}.Layout(gtx, t.Theme.Shaper, trackerFont, trackerFontSize, "*", op.CallOp{})
+			widget.Label{}.Layout(gtx, t.Theme.Material.Shaper, t.Theme.NoteEditor.Unique.Font, t.Theme.NoteEditor.Unique.TextSize, "*", uniqueOp)
 		}
-		if te.scrollTable.Table.Cursor() == point && te.scrollTable.Focused() {
-			paint.ColorOp{Color: trackerActiveTextColor}.Add(gtx.Ops)
-		} else {
-			paint.ColorOp{Color: trackerInactiveTextColor}.Add(gtx.Ops)
-		}
+		op := noteOp
 		val := noteStr[byte(t.Model.Notes().Value(tracker.Point{X: x, Y: y}))]
 		if t.Model.Notes().Effect(x) {
 			val = hexStr[byte(t.Model.Notes().Value(tracker.Point{X: x, Y: y}))]
 		}
-		widget.Label{Alignment: text.Middle}.Layout(gtx, t.Theme.Shaper, trackerFont, trackerFontSize, val, op.CallOp{})
+		widget.Label{Alignment: text.Middle}.Layout(gtx, t.Theme.Material.Shaper, t.Theme.NoteEditor.Note.Font, t.Theme.NoteEditor.Note.TextSize, val, op)
 		return D{Size: image.Pt(pxWidth, pxHeight)}
 	}
-	table := FilledScrollTable(t.Theme, te.scrollTable, cell, colTitle, rowTitle, nil, rowTitleBg)
+	table := FilledScrollTable(t.Theme, te.scrollTable)
 	table.RowTitleWidth = trackPatMarkWidth + trackRowMarkWidth
 	table.ColumnTitleHeight = trackColTitleHeight
 	table.CellWidth = trackColWidth
 	table.CellHeight = trackRowHeight
-	return table.Layout(gtx)
+	return table.Layout(gtx, cell, colTitle, rowTitle, nil, rowTitleBg)
+}
+
+func colorOp(gtx C, c color.NRGBA) op.CallOp {
+	macro := op.Record(gtx.Ops)
+	paint.ColorOp{Color: c}.Add(gtx.Ops)
+	return macro.Stop()
 }
 
 func (te *NoteEditor) paintColumnCell(gtx C, x int, t *Tracker, c color.NRGBA, ignoreEffect bool) {
@@ -362,9 +381,8 @@ func (te *NoteEditor) command(t *Tracker, e key.Event) {
 	var n byte
 	if t.Model.Notes().Effect(te.scrollTable.Table.Cursor().X) {
 		if nibbleValue, err := strconv.ParseInt(string(e.Name), 16, 8); err == nil {
-			t.Model.Notes().FillNibble(byte(nibbleValue), t.Model.Notes().LowNibble())
-			n = t.Model.Notes().Value(te.scrollTable.Table.Cursor())
-			te.finishNoteInsert(t, n, e.Name)
+			ev := t.Model.Notes().InputNibble(byte(nibbleValue))
+			t.KeyNoteMap.Press(e.Name, ev)
 		}
 	} else {
 		action, ok := keyBindingMap[e]
@@ -372,8 +390,8 @@ func (te *NoteEditor) command(t *Tracker, e key.Event) {
 			return
 		}
 		if action == "NoteOff" {
-			t.Model.Notes().Table().Fill(0)
-			te.finishNoteInsert(t, 0, "")
+			ev := t.Model.Notes().Input(0)
+			t.KeyNoteMap.Press(e.Name, ev)
 			return
 		}
 		if action[:4] == "Note" {
@@ -382,42 +400,8 @@ func (te *NoteEditor) command(t *Tracker, e key.Event) {
 				return
 			}
 			n = noteAsValue(t.OctaveNumberInput.Int.Value(), val-12)
-			t.Model.Notes().Table().Fill(int(n))
-			te.finishNoteInsert(t, n, e.Name)
+			ev := t.Model.Notes().Input(n)
+			t.KeyNoteMap.Press(e.Name, ev)
 		}
 	}
-}
-
-func (te *NoteEditor) finishNoteInsert(t *Tracker, note byte, keyName key.Name) {
-	if step := t.Model.Step().Value(); step > 0 {
-		te.scrollTable.Table.MoveCursor(0, step)
-		te.scrollTable.Table.SetCursor2(te.scrollTable.Table.Cursor())
-	}
-	te.scrollTable.EnsureCursorVisible()
-
-	if keyName == "" {
-		return
-	}
-	if _, ok := t.KeyPlaying[keyName]; !ok {
-		trk := te.scrollTable.Table.Cursor().X
-		t.KeyPlaying[keyName] = t.TrackNoteOn(trk, note)
-	}
-}
-
-func (te *NoteEditor) HandleMidiInput(t *Tracker) {
-	inputDeactivated := !t.Model.TrackMidiIn().Value()
-	if inputDeactivated {
-		return
-	}
-	te.scrollTable.Table.SetCursor2(te.scrollTable.Table.Cursor())
-	remaining := t.Model.CountNextTracksForCurrentInstrument()
-	for i, note := range t.MidiNotePlaying {
-		t.Model.Notes().Table().Set(note)
-		te.scrollTable.Table.MoveCursor(1, 0)
-		te.scrollTable.EnsureCursorVisible()
-		if i >= remaining {
-			break
-		}
-	}
-	te.scrollTable.Table.SetCursor(te.scrollTable.Table.Cursor2())
 }

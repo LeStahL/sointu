@@ -5,12 +5,13 @@ import (
 	"image"
 	"io"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/font/gofont"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/io/transfer"
 	"gioui.org/layout"
@@ -27,15 +28,15 @@ var canQuit = true // set to false in init() if plugin tag is enabled
 
 type (
 	Tracker struct {
-		Theme                 *material.Theme
+		Theme                 *Theme
 		OctaveNumberInput     *NumberInput
 		InstrumentVoices      *NumberInput
 		TopHorizontalSplit    *Split
 		BottomHorizontalSplit *Split
 		VerticalSplit         *Split
-		KeyPlaying            map[key.Name]tracker.NoteID
-		MidiNotePlaying       []byte
+		KeyNoteMap            Keyboard[key.Name]
 		PopupAlert            *PopupAlert
+		Zoom                  int
 
 		SaveChangesDialog *Dialog
 		WaveTypeDialog    *Dialog
@@ -49,8 +50,8 @@ type (
 		SongPanel        *SongPanel
 
 		filePathString tracker.String
+		noteEvents     []tracker.NoteEvent
 
-		quitWG      sync.WaitGroup
 		execChan    chan func()
 		preferences Preferences
 
@@ -67,18 +68,20 @@ const (
 	ConfirmNew
 )
 
+var ZoomFactors = []float32{.25, 1. / 3, .5, 2. / 3, .75, .8, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5}
+
 func NewTracker(model *tracker.Model) *Tracker {
 	t := &Tracker{
-		Theme:             material.NewTheme(),
-		OctaveNumberInput: NewNumberInput(model.Octave().Int()),
-		InstrumentVoices:  NewNumberInput(model.InstrumentVoices().Int()),
+		OctaveNumberInput: NewNumberInput(model.Octave()),
+		InstrumentVoices:  NewNumberInput(model.InstrumentVoices()),
 
-		TopHorizontalSplit:    &Split{Ratio: -.5},
-		BottomHorizontalSplit: &Split{Ratio: -.6},
-		VerticalSplit:         &Split{Axis: layout.Vertical},
+		TopHorizontalSplit:    &Split{Ratio: -.5, MinSize1: 180, MinSize2: 180},
+		BottomHorizontalSplit: &Split{Ratio: -.6, MinSize1: 180, MinSize2: 180},
+		VerticalSplit:         &Split{Axis: layout.Vertical, MinSize1: 180, MinSize2: 180},
 
 		KeyPlaying:        make(map[key.Name]tracker.NoteID),
 		MidiNotePlaying:   make([]byte, 0, 32),
+		
 		SaveChangesDialog: NewDialog(model.SaveSong(), model.DiscardSong(), model.Cancel()),
 		WaveTypeDialog:    NewDialog(model.ExportInt16(), model.ExportFloat(), model.Cancel()),
 		InstrumentEditor:  NewInstrumentEditor(model),
@@ -86,86 +89,106 @@ func NewTracker(model *tracker.Model) *Tracker {
 		TrackEditor:       NewNoteEditor(model),
 		SongPanel:         NewSongPanel(model),
 
+		Zoom: 6,
+
 		Model: model,
 
-		filePathString: model.FilePath().String(),
-		preferences:    NewPreferences(),
+		filePathString: model.FilePath(),
 	}
-	t.Theme.Shaper = text.NewShaper(text.WithCollection(fontCollection))
-	t.PopupAlert = NewPopupAlert(model.Alerts(), t.Theme.Shaper)
-	if t.preferences.YmlError != nil {
-		model.Alerts().Add(
-			fmt.Sprintf("Preferences YML Error: %s", t.preferences.YmlError),
-			tracker.Warning,
-		)
+	t.KeyNoteMap = MakeKeyboard[key.Name](model.Broker())
+	t.PopupAlert = NewPopupAlert(model.Alerts())
+	var warn error
+	if t.Theme, warn = NewTheme(); warn != nil {
+		model.Alerts().AddAlert(tracker.Alert{
+			Priority: tracker.Warning,
+			Message:  warn.Error(),
+			Duration: 10 * time.Second,
+		})
 	}
-	t.Theme.Palette.Fg = primaryColor
-	t.Theme.Palette.ContrastFg = black
+	t.Theme.Material.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
+	if warn := ReadConfig(defaultPreferences, "preferences.yml", &t.preferences); warn != nil {
+		model.Alerts().AddAlert(tracker.Alert{
+			Priority: tracker.Warning,
+			Message:  warn.Error(),
+			Duration: 10 * time.Second,
+		})
+	}
 	t.TrackEditor.scrollTable.Focus()
-	t.quitWG.Add(1)
 	return t
 }
 
 func (t *Tracker) Main() {
-	titleFooter := ""
-	w := t.newWindow()
 	t.InstrumentEditor.Focus()
 	recoveryTicker := time.NewTicker(time.Second * 30)
-	t.Explorer = explorer.NewExplorer(w)
-	// Make a channel to read window events from.
-	events := make(chan event.Event)
-	// Make a channel to signal the end of processing a window event.
-	acks := make(chan struct{})
-	go eventLoop(w, events, acks)
 	var ops op.Ops
-	for {
-		select {
-		case e := <-t.Broker().ToModel:
-			t.ProcessMsg(e)
-			w.Invalidate()
-		case e := <-events:
-			switch e := e.(type) {
-			case app.DestroyEvent:
-				acks <- struct{}{}
-				if canQuit {
-					t.Quit().Do()
+	titlePath := ""
+	for !t.Quitted() {
+		w := t.newWindow()
+		w.Option(app.Title(titleFromPath(titlePath)))
+		t.Explorer = explorer.NewExplorer(w)
+		acks := make(chan struct{})
+		events := make(chan event.Event)
+		go func() {
+			for {
+				ev := w.Event()
+				events <- ev
+				<-acks
+				if _, ok := ev.(app.DestroyEvent); ok {
+					return
 				}
-				if !t.Quitted() {
-					// TODO: uh oh, there's no way of canceling the destroyevent in gioui? so we create a new window just to show the dialog
-					w = t.newWindow()
-					t.Explorer = explorer.NewExplorer(w)
-					go eventLoop(w, events, acks)
-				}
-			case app.FrameEvent:
-				if titleFooter != t.filePathString.Value() {
-					titleFooter = t.filePathString.Value()
-					if titleFooter != "" {
-						w.Option(app.Title(fmt.Sprintf("Sointu Tracker - %v", titleFooter)))
-					} else {
-						w.Option(app.Title("Sointu Tracker"))
+			}
+		}()
+	F:
+		for {
+			select {
+			case e := <-t.Broker().ToGUI:
+				switch e := e.(type) {
+				case tracker.NoteEvent:
+					t.noteEvents = append(t.noteEvents, e)
+				case tracker.MsgToGUI:
+					switch e.Kind {
+					case tracker.GUIMessageCenterOnRow:
+						t.TrackEditor.scrollTable.RowTitleList.CenterOn(e.Param)
+					case tracker.GUIMessageEnsureCursorVisible:
+						t.TrackEditor.scrollTable.EnsureCursorVisible()
 					}
 				}
-				gtx := app.NewContext(&ops, e)
-				if t.SongPanel.PlayingBtn.Bool.Value() && t.SongPanel.FollowBtn.Bool.Value() {
-					t.TrackEditor.scrollTable.RowTitleList.CenterOn(t.PlaySongRow())
+				w.Invalidate()
+			case e := <-t.Broker().ToModel:
+				t.ProcessMsg(e)
+				w.Invalidate()
+			case <-t.Broker().CloseGUI:
+				t.ForceQuit().Do()
+				w.Perform(system.ActionClose)
+			case e := <-events:
+				switch e := e.(type) {
+				case app.DestroyEvent:
+					if canQuit {
+						t.RequestQuit().Do()
+					}
+					acks <- struct{}{}
+					break F // this window is done, we need to create a new one
+				case app.FrameEvent:
+					if titlePath != t.filePathString.Value() {
+						titlePath = t.filePathString.Value()
+						w.Option(app.Title(titleFromPath(titlePath)))
+					}
+					gtx := app.NewContext(&ops, e)
+					t.Layout(gtx, w)
+					e.Frame(gtx.Ops)
+					if t.Quitted() {
+						w.Perform(system.ActionClose)
+					}
 				}
-				t.Layout(gtx, w)
-				e.Frame(gtx.Ops)
 				acks <- struct{}{}
-			default:
-				acks <- struct{}{}
+			case <-recoveryTicker.C:
+				t.SaveRecovery()
 			}
-		case <-recoveryTicker.C:
-			t.SaveRecovery()
-		}
-		if t.Quitted() {
-			break
 		}
 	}
 	recoveryTicker.Stop()
-	w.Perform(system.ActionClose)
 	t.SaveRecovery()
-	t.quitWG.Done()
+	close(t.Broker().FinishedGUI)
 }
 
 func (t *Tracker) newWindow() *app.Window {
@@ -173,6 +196,9 @@ func (t *Tracker) newWindow() *app.Window {
 	w.Option(app.Title("Sointu Tracker"))
 	w.Option(app.Size(t.preferences.WindowSize()))
 	if t.preferences.Window.Maximized {
+		w.Option(app.Maximized.Option())
+	}
+	if t.preferences.Window.Fullscreen {
 		w.Option(app.Fullscreen.Option())
 	}
 	return w
@@ -188,15 +214,31 @@ func eventLoop(w *app.Window, events chan<- event.Event, acks <-chan struct{}) {
 		if _, ok := ev.(app.DestroyEvent); ok {
 			return
 		}
+	w.Option(app.Size(t.preferences.WindowSize()))
+	if t.preferences.Window.Maximized {
+		w.Option(app.Maximized.Option())
 	}
+	if t.preferences.Window.Fullscreen{
+		w.Option(app.Fullscreen.Option())
+	}
+	return w
 }
 
-func (t *Tracker) WaitQuitted() {
-	t.quitWG.Wait()
+func titleFromPath(path string) string {
+	if path == "" {
+		return "Sointu Tracker"
+	}
+	return fmt.Sprintf("Sointu Tracker - %s", path)
 }
 
 func (t *Tracker) Layout(gtx layout.Context, w *app.Window) {
-	paint.FillShape(gtx.Ops, backgroundColor, clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Op())
+	zoomFactor := ZoomFactors[t.Zoom]
+	gtx.Metric.PxPerDp *= zoomFactor
+	gtx.Metric.PxPerSp *= zoomFactor
+	defer clip.Rect(image.Rectangle{Max: gtx.Constraints.Max}).Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, t.Theme.Material.Bg)
+	event.Op(gtx.Ops, t) // area for capturing scroll events
+
 	if t.InstrumentEditor.enlargeBtn.Bool.Value() {
 		t.layoutTop(gtx)
 	} else {
@@ -204,7 +246,7 @@ func (t *Tracker) Layout(gtx layout.Context, w *app.Window) {
 			t.layoutTop,
 			t.layoutBottom)
 	}
-	t.PopupAlert.Layout(gtx)
+	t.PopupAlert.Layout(gtx, t.Theme)
 	t.showDialog(gtx)
 	// this is the top level input handler for the whole app
 	// it handles all the global key events and clipboard events
@@ -215,18 +257,36 @@ func (t *Tracker) Layout(gtx layout.Context, w *app.Window) {
 			key.Filter{Name: "", Optional: key.ModAlt | key.ModCommand | key.ModShift | key.ModShortcut | key.ModSuper},
 			key.Filter{Name: key.NameTab, Optional: key.ModShift},
 			transfer.TargetFilter{Target: t, Type: "application/text"},
+			pointer.Filter{Target: t, Kinds: pointer.Scroll, ScrollY: pointer.ScrollRange{Min: -1, Max: 1}},
 		)
 		if !ok {
 			break
 		}
 		switch e := ev.(type) {
+		case pointer.Event:
+			switch e.Kind {
+			case pointer.Scroll:
+				if e.Modifiers.Contain(key.ModShortcut) {
+					t.Zoom = min(max(t.Zoom-int(e.Scroll.Y), 0), len(ZoomFactors)-1)
+					t.Alerts().AddNamed("ZoomFactor", fmt.Sprintf("%.0f%%", ZoomFactors[t.Zoom]*100), tracker.Info)
+				}
+			}
 		case key.Event:
 			t.KeyEvent(e, gtx)
 		case transfer.DataEvent:
 			t.ReadSong(e.Open())
 		}
 	}
-
+	// if no-one else handled the note events, we handle them here
+	for len(t.noteEvents) > 0 {
+		ev := t.noteEvents[0]
+		ev.IsTrack = false
+		ev.Channel = t.Model.Instruments().Selected()
+		ev.Source = t
+		copy(t.noteEvents, t.noteEvents[1:])
+		t.noteEvents = t.noteEvents[:len(t.noteEvents)-1]
+		tracker.TrySend(t.Broker().ToPlayer, any(ev))
+	}
 }
 
 func (t *Tracker) showDialog(gtx C) {
@@ -364,3 +424,4 @@ func (t *Tracker) HasAnyMidiInput() bool {
 	}
 	return false
 }
+

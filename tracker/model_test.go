@@ -13,10 +13,6 @@ import (
 
 type NullContext struct{}
 
-func (NullContext) NextEvent(frame int) (event tracker.MIDINoteEvent, ok bool) {
-	return tracker.MIDINoteEvent{}, false
-}
-
 func (NullContext) FinishBlock(frame int) {}
 
 func (NullContext) BPM() (bpm float64, ok bool) {
@@ -46,14 +42,14 @@ func (mwc *myWriteCloser) Close() error {
 
 func (s *modelFuzzState) Iterate(yield func(string, func(p string, t *testing.T)) bool, seed int) {
 	// Ints
-	s.IterateInt("InstrumentVoices", s.model.InstrumentVoices().Int(), yield, seed)
-	s.IterateInt("TrackVoices", s.model.TrackVoices().Int(), yield, seed)
-	s.IterateInt("SongLength", s.model.SongLength().Int(), yield, seed)
-	s.IterateInt("BPM", s.model.BPM().Int(), yield, seed)
-	s.IterateInt("RowsPerPattern", s.model.RowsPerPattern().Int(), yield, seed)
-	s.IterateInt("RowsPerBeat", s.model.RowsPerBeat().Int(), yield, seed)
-	s.IterateInt("Step", s.model.Step().Int(), yield, seed)
-	s.IterateInt("Octave", s.model.Octave().Int(), yield, seed)
+	s.IterateInt("InstrumentVoices", s.model.InstrumentVoices(), yield, seed)
+	s.IterateInt("TrackVoices", s.model.TrackVoices(), yield, seed)
+	s.IterateInt("SongLength", s.model.SongLength(), yield, seed)
+	s.IterateInt("BPM", s.model.BPM(), yield, seed)
+	s.IterateInt("RowsPerPattern", s.model.RowsPerPattern(), yield, seed)
+	s.IterateInt("RowsPerBeat", s.model.RowsPerBeat(), yield, seed)
+	s.IterateInt("Step", s.model.Step(), yield, seed)
+	s.IterateInt("Octave", s.model.Octave(), yield, seed)
 	// Lists
 	s.IterateList("Instruments", s.model.Instruments().List(), yield, seed)
 	s.IterateList("Units", s.model.Units().List(), yield, seed)
@@ -61,20 +57,20 @@ func (s *modelFuzzState) Iterate(yield func(string, func(p string, t *testing.T)
 	s.IterateList("OrderRows", s.model.OrderRows().List(), yield, seed)
 	s.IterateList("NoteRows", s.model.NoteRows().List(), yield, seed)
 	s.IterateList("UnitSearchResults", s.model.SearchResults().List(), yield, seed)
-	s.IterateBool("Panic", s.model.Panic().Bool(), yield, seed)
-	s.IterateBool("Recording", s.model.IsRecording().Bool(), yield, seed)
-	s.IterateBool("Playing", s.model.Playing().Bool(), yield, seed)
-	s.IterateBool("InstrEnlarged", s.model.InstrEnlarged().Bool(), yield, seed)
-	s.IterateBool("Effect", s.model.Effect().Bool(), yield, seed)
-	s.IterateBool("CommentExpanded", s.model.CommentExpanded().Bool(), yield, seed)
-	s.IterateBool("Follow", s.model.Follow().Bool(), yield, seed)
-	s.IterateBool("UniquePatterns", s.model.UniquePatterns().Bool(), yield, seed)
-	s.IterateBool("LinkInstrTrack", s.model.LinkInstrTrack().Bool(), yield, seed)
+	s.IterateBool("Panic", s.model.Panic(), yield, seed)
+	s.IterateBool("Recording", s.model.IsRecording(), yield, seed)
+	s.IterateBool("Playing", s.model.Playing(), yield, seed)
+	s.IterateBool("InstrEnlarged", s.model.InstrEnlarged(), yield, seed)
+	s.IterateBool("Effect", s.model.Effect(), yield, seed)
+	s.IterateBool("CommentExpanded", s.model.CommentExpanded(), yield, seed)
+	s.IterateBool("Follow", s.model.Follow(), yield, seed)
+	s.IterateBool("UniquePatterns", s.model.UniquePatterns(), yield, seed)
+	s.IterateBool("LinkInstrTrack", s.model.LinkInstrTrack(), yield, seed)
 	// Strings
-	s.IterateString("FilePath", s.model.FilePath().String(), yield, seed)
-	s.IterateString("InstrumentName", s.model.InstrumentName().String(), yield, seed)
-	s.IterateString("InstrumentComment", s.model.InstrumentComment().String(), yield, seed)
-	s.IterateString("UnitSearchText", s.model.UnitSearch().String(), yield, seed)
+	s.IterateString("FilePath", s.model.FilePath(), yield, seed)
+	s.IterateString("InstrumentName", s.model.InstrumentName(), yield, seed)
+	s.IterateString("InstrumentComment", s.model.InstrumentComment(), yield, seed)
+	s.IterateString("UnitSearchText", s.model.UnitSearch(), yield, seed)
 	// Actions
 	s.IterateAction("AddTrack", s.model.AddTrack(), yield, seed)
 	s.IterateAction("DeleteTrack", s.model.DeleteTrack(), yield, seed)
@@ -135,7 +131,7 @@ func (s *modelFuzzState) Iterate(yield func(string, func(p string, t *testing.T)
 func (s *modelFuzzState) IterateInt(name string, i tracker.Int, yield func(string, func(p string, t *testing.T)) bool, seed int) {
 	r := i.Range()
 	yield(name+".Set", func(p string, t *testing.T) {
-		i.Set(seed%(r.Max-r.Min+10) - 5 + r.Min)
+		i.SetValue(seed%(r.Max-r.Min+10) - 5 + r.Min)
 	})
 	yield(name+".Value", func(p string, t *testing.T) {
 		if v := i.Value(); v < r.Min || v > r.Max {
@@ -153,7 +149,7 @@ func (s *modelFuzzState) IterateAction(name string, a tracker.Action, yield func
 
 func (s *modelFuzzState) IterateBool(name string, b tracker.Bool, yield func(string, func(p string, t *testing.T)) bool, seed int) {
 	yield(name+".Set", func(p string, t *testing.T) {
-		b.Set(seed%2 == 0)
+		b.SetValue(seed%2 == 0)
 	})
 	yield(name+".Toggle", func(p string, t *testing.T) {
 		b.Toggle()
@@ -162,7 +158,7 @@ func (s *modelFuzzState) IterateBool(name string, b tracker.Bool, yield func(str
 
 func (s *modelFuzzState) IterateString(name string, str tracker.String, yield func(string, func(p string, t *testing.T)) bool, seed int) {
 	yield(name+".Set", func(p string, t *testing.T) {
-		str.Set(fmt.Sprintf("%d", seed))
+		str.SetValue(fmt.Sprintf("%d", seed))
 	})
 }
 
@@ -277,7 +273,7 @@ func FuzzModel(f *testing.F) {
 					break loop
 				default:
 					ctx := NullContext{}
-					player.Process(buf, ctx, nil)
+					player.Process(buf, ctx)
 				}
 			}
 		}()
@@ -309,6 +305,6 @@ func FuzzModel(f *testing.F) {
 			}
 		}
 		closeChan <- struct{}{}
-		broker.ToDetector <- tracker.MsgToDetector{Quit: true}
+		broker.CloseDetector <- struct{}{}
 	})
 }

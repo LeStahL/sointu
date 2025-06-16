@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"time"
 
 	"gioui.org/app"
 	"github.com/vsariola/sointu"
@@ -45,10 +46,10 @@ func main() {
 	if configDir, err := os.UserConfigDir(); err == nil {
 		recoveryFile = filepath.Join(configDir, "Sointu", "sointu-track-recovery")
 	}
-	midiContext := gomidi.NewContext()
+	broker := tracker.NewBroker()
+	midiContext := gomidi.NewContext(broker)
 	defer midiContext.Close()
 	midiContext.TryToOpenBy(*defaultMidiInput, *firstMidiInput)
-	broker := tracker.NewBroker()
 	model := tracker.NewModel(broker, cmd.MainSynther, midiContext, recoveryFile)
 	player := tracker.NewPlayer(broker, cmd.MainSynther)
 	detector := tracker.NewDetector(broker)
@@ -64,14 +65,15 @@ func main() {
 
 	trackerUi := gioui.NewTracker(model)
 	audioCloser := audioContext.Play(func(buf sointu.AudioBuffer) error {
-		player.Process(buf, midiContext, trackerUi)
+		player.Process(buf, midiContext)
 		return nil
 	})
 
 	go func() {
 		trackerUi.Main()
 		audioCloser.Close()
-		detector.Close()
+		tracker.TrySend(broker.CloseDetector, struct{}{})
+		tracker.TimeoutReceive(broker.FinishedDetector, 3*time.Second)
 		if *cpuprofile != "" {
 			pprof.StopCPUProfile()
 			f.Close()

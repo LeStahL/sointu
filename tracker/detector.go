@@ -12,6 +12,7 @@ type (
 		broker           *Broker
 		loudnessDetector loudnessDetector
 		peakDetector     peakDetector
+		chunkHistory     sointu.AudioBuffer
 	}
 
 	WeightingType int
@@ -47,10 +48,7 @@ type (
 		b0, b1, b2, a1, a2 float32
 	}
 
-	weighting struct {
-		coeffs []biquadCoeff
-		offset float32
-	}
+	weighting []biquadCoeff
 
 	peakDetector struct {
 		oversampling bool
@@ -89,6 +87,7 @@ const (
 	AWeighting
 	CWeighting
 	NoWeighting
+	NumWeightingTypes
 )
 
 func NewDetector(b *Broker) *Detector {
@@ -100,56 +99,63 @@ func NewDetector(b *Broker) *Detector {
 }
 
 func (s *Detector) Run() {
-	var chunkHistory sointu.AudioBuffer
-	for msg := range s.broker.ToDetector {
-		if msg.Reset {
-			s.loudnessDetector.reset()
-			s.peakDetector.reset()
-		}
-		if msg.Quit {
+	for {
+		select {
+		case <-s.broker.CloseDetector:
+			close(s.broker.FinishedDetector)
 			return
-		}
-		switch data := msg.Data.(type) {
-		case *sointu.AudioBuffer:
-			buf := *data
-			for {
-				var chunk sointu.AudioBuffer
-				if len(chunkHistory) > 0 && len(chunkHistory) < 4410 {
-					l := min(len(buf), 4410-len(chunkHistory))
-					chunkHistory = append(chunkHistory, buf[:l]...)
-					if len(chunkHistory) < 4410 {
-						break
-					}
-					chunk = chunkHistory
-					buf = buf[l:]
-				} else {
-					if len(buf) >= 4410 {
-						chunk = buf[:4410]
-						buf = buf[4410:]
-					} else {
-						chunkHistory = chunkHistory[:0]
-						chunkHistory = append(chunkHistory, buf...)
-						break
-					}
-				}
-				trySend(s.broker.ToModel, MsgToModel{
-					HasDetectorResult: true,
-					DetectorResult: DetectorResult{
-						Loudness: s.loudnessDetector.update(chunk),
-						Peaks:    s.peakDetector.update(chunk),
-					},
-				})
-			}
-			s.broker.PutAudioBuffer(data)
-		case func():
-			data()
+		case msg := <-s.broker.ToDetector:
+			s.handleMsg(msg)
 		}
 	}
 }
 
-// Close may theoretically block if the broker is full, but it should not happen in practice
-func (s *Detector) Close() {
-	s.broker.ToDetector <- MsgToDetector{Quit: true}
+func (s *Detector) handleMsg(msg MsgToDetector) {
+	if msg.Reset {
+		s.loudnessDetector.reset()
+		s.peakDetector.reset()
+	}
+	if msg.HasWeightingType {
+		s.loudnessDetector.weighting = weightings[WeightingType(msg.WeightingType)]
+		s.loudnessDetector.reset()
+	}
+	if msg.HasOversampling {
+		s.peakDetector.oversampling = msg.Oversampling
+		s.peakDetector.reset()
+	}
+
+	switch data := msg.Data.(type) {
+	case *sointu.AudioBuffer:
+		buf := *data
+		for {
+			var chunk sointu.AudioBuffer
+			if len(s.chunkHistory) > 0 && len(s.chunkHistory) < 4410 {
+				l := min(len(buf), 4410-len(s.chunkHistory))
+				s.chunkHistory = append(s.chunkHistory, buf[:l]...)
+				if len(s.chunkHistory) < 4410 {
+					break
+				}
+				chunk = s.chunkHistory
+				buf = buf[l:]
+			} else {
+				if len(buf) >= 4410 {
+					chunk = buf[:4410]
+					buf = buf[4410:]
+				} else {
+					s.chunkHistory = s.chunkHistory[:0]
+					s.chunkHistory = append(s.chunkHistory, buf...)
+					break
+				}
+			}
+			TrySend(s.broker.ToModel, MsgToModel{
+				HasDetectorResult: true,
+				DetectorResult: DetectorResult{
+					Loudness: s.loudnessDetector.update(chunk),
+					Peaks:    s.peakDetector.update(chunk),
+				},
+			})
+		}
+	}
 }
 
 func makeLoudnessDetector(weighting WeightingType) loudnessDetector {
@@ -166,36 +172,42 @@ func makePeakDetector(oversampling bool) peakDetector {
 	return peakDetector{
 		oversampling: oversampling,
 		windows: [2][2]RingBuffer[float32]{
-			{{Buffer: make([]float32, 4)}, {Buffer: make([]float32, 30)}}, // momentary and short-term peaks for left channel
-			{{Buffer: make([]float32, 4)}, {Buffer: make([]float32, 30)}}, // momentary and short-term peaks for right channel
+			{{Buffer: make([]float32, 4)}, {Buffer: make([]float32, 4)}},   // momentary peaks
+			{{Buffer: make([]float32, 30)}, {Buffer: make([]float32, 30)}}, // short-term peaks
 		},
 	}
 }
 
 /*
-From matlab:
-f = getFilter(weightingFilter('A-weighting','SampleRate',44100)); f.Numerator, f.Denominator
-for i = 1:size(f.Numerator,1); fprintf("b0: %.16f, b1: %.16f, b2: %.16f, a1: %.16f, a2: %.16f\n",f.Numerator(i,:),f.Denominator(i,2:end)); end
-f = getFilter(weightingFilter('C-weighting','SampleRate',44100)); f.Numerator, f.Denominator
-for i = 1:size(f.Numerator,1); fprintf("b0: %.16f, b1: %.16f, b2: %.16f, a1: %.16f, a2: %.16f\n",f.Numerator(i,:),f.Denominator(i,2:end)); end
-f = getFilter(weightingFilter('k-weighting','SampleRate',44100)); f.Numerator, f.Denominator
-for i = 1:size(f.Numerator,1); fprintf("b0: %.16f, b1: %.16f, b2: %.16f, a1: %.16f, a2: %.16f\n",f.Numerator(i,:),f.Denominator(i,2:end)); end
+From matlab: (we bake in the scale values to the numerator coefficients)
+weightings = {'A-weighting','C-weighting','k-weighting'}
+for j = 1:3
+disp(weightings{j})
+f = getFilter(weightingFilter(weightings{j},'SampleRate',44100)); f.Numerator, f.Denominator, f.ScaleValues
+if j == 3 % k-weighting has non-zero gain at 1 kHz, so normalize it to 0 dB by scaling the first filter
+[h,w] = freqz(f,[1000,1000],44100);
+g = abs(h(1));
+fprintf("Gain %f dB\n", 20*log10(abs(h(1))));
+f.Numerator(1,:) = f.Numerator(1,:)/g;
+end
+for i = 1:size(f.Numerator,1); fprintf("b0: %.16f, b1: %.16f, b2: %.16f, a1: %.16f, a2: %.16f\n",f.Numerator(i,:)*f.ScaleValues(i),f.Denominator(i,2:end)); end
+end
 */
 var weightings = map[WeightingType]weighting{
-	AWeighting: {coeffs: []biquadCoeff{
-		{b0: 1, b1: 2, b2: 1, a1: -0.1405360824207108, a2: 0.0049375976155402},
+	AWeighting: {
+		{b0: 0.2556115104436430, b1: 0.5112230208872860, b2: 0.2556115104436430, a1: -0.1405360824207108, a2: 0.0049375976155402},
 		{b0: 1, b1: -2, b2: 1, a1: -1.8849012174287920, a2: 0.8864214718161675},
 		{b0: 1, b1: -2, b2: 1, a1: -1.9941388812663283, a2: 0.9941474694445309},
-	}, offset: 0},
-	CWeighting: {coeffs: []biquadCoeff{
-		{b0: 1, b1: 2, b2: 1, a1: -0.1405360824207108, a2: 0.0049375976155402},
+	},
+	CWeighting: {
+		{b0: 0.2170124955461332, b1: 0.4340249910922664, b2: 0.2170124955461332, a1: -0.1405360824207108, a2: 0.0049375976155402},
 		{b0: 1, b1: -2, b2: 1, a1: -1.9941388812663283, a2: 0.9941474694445309},
-	}, offset: 0},
-	KWeighting: {coeffs: []biquadCoeff{
-		{b0: 1.5308412300503476, b1: -2.6509799951547293, b2: 1.1690790799215869, a1: -1.6636551132560204, a2: 0.7125954280732254},
+	},
+	KWeighting: {
+		{b0: 1.4128568659906546, b1: -2.4466647580657646, b2: 1.0789762991286349, a1: -1.6636551132560204, a2: 0.7125954280732254},
 		{b0: 0.9995600645425144, b1: -1.9991201290850289, b2: 0.9995600645425144, a1: -1.9891696736297957, a2: 0.9891990357870394},
-	}, offset: -0.691}, // offset is to make up for the fact that K-weighting has slightly above unity gain at 1 kHz
-	NoWeighting: {coeffs: []biquadCoeff{}, offset: 0},
+	},
+	NoWeighting: {},
 }
 
 // according to https://tech.ebu.ch/docs/tech/tech3341.pdf
@@ -217,14 +229,14 @@ func (d *loudnessDetector) update(chunk sointu.AudioBuffer) LoudnessResult {
 	setSliceLength(&d.tmp2, l)
 	setSliceLength(&d.tmpbool, l)
 	var total float32
-	for chn := 0; chn < 2; chn++ {
+	for chn := range 2 {
 		// deinterleave the channels
-		for i := 0; i < len(chunk); i++ {
+		for i := range chunk {
 			d.tmp[i] = chunk[i][chn]
 		}
 		// filter the signal with the weighting filter
-		for k := 0; k < len(d.weighting.coeffs); k++ {
-			d.states[chn][k].Filter(d.tmp[:len(chunk)], d.weighting.coeffs[k])
+		for k := range d.weighting {
+			d.states[chn][k].Filter(d.tmp[:len(chunk)], d.weighting[k])
 		}
 		// square the samples
 		res := vek32.Mul_Into(d.tmp2, d.tmp[:len(chunk)], d.tmp[:len(chunk)])
@@ -241,11 +253,11 @@ func (d *loudnessDetector) update(chunk sointu.AudioBuffer) LoudnessResult {
 		if d.maxPowers[i] < mean {
 			d.maxPowers[i] = mean
 		}
-		ret[i+int(LoudnessMomentary)] = power2loudness(mean, d.weighting.offset) // we assume the LoudnessMomentary is followed by LoudnessShortTerm
-		ret[i+int(LoudnessMaxMomentary)] = power2loudness(d.maxPowers[i], d.weighting.offset)
+		ret[i+int(LoudnessMomentary)] = powerToDecibel(mean) // we assume the LoudnessMomentary is followed by LoudnessShortTerm
+		ret[i+int(LoudnessMaxMomentary)] = powerToDecibel(d.maxPowers[i])
 	}
 	if len(d.averagedPowers[0])%10 == 0 { // every 10 samples of 100 ms i.e. every 1 s, we recalculate the integrated power
-		absThreshold := loudness2power(-70, d.weighting.offset) // -70 dB is the first threshold
+		absThreshold := decibelToPower(-70) // -70 dB is the first threshold
 		b := vek32.GtNumber_Into(d.tmpbool, d.averagedPowers[0], absThreshold)
 		m2 := vek32.Select_Into(d.tmp, d.averagedPowers[0], b)
 		if len(m2) > 0 {
@@ -257,7 +269,7 @@ func (d *loudnessDetector) update(chunk sointu.AudioBuffer) LoudnessResult {
 			}
 		}
 	}
-	ret[LoudnessIntegrated] = power2loudness(d.integratedPower, d.weighting.offset)
+	ret[LoudnessIntegrated] = powerToDecibel(d.integratedPower)
 	return ret
 }
 
@@ -270,20 +282,26 @@ func (d *loudnessDetector) reset() {
 		d.averagedPowers[i] = d.averagedPowers[i][:0]
 		d.maxPowers[i] = 0
 	}
+	// reset the biquad states
+	d.states = [2][3]biquadState{}
 	d.integratedPower = 0
 }
 
-func power2loudness(power, offset float32) Decibel {
-	return Decibel(float32(10*math.Log10(float64(power))) + offset)
+func powerToDecibel(power float32) Decibel {
+	return Decibel(float32(10 * math.Log10(float64(power))))
 }
 
-func loudness2power(loudness Decibel, offset float32) float32 {
-	return (float32)(math.Pow(10, (float64(loudness)-float64(offset))/10))
+func amplitudeToDecibel(amplitude float32) Decibel {
+	return Decibel(float32(20 * math.Log10(float64(amplitude))))
+}
+
+func decibelToPower(loudness Decibel) float32 {
+	return (float32)(math.Pow(10, (float64(loudness))/10))
 }
 
 func (state *biquadState) Filter(buffer []float32, coeff biquadCoeff) {
 	s := *state
-	for i := 0; i < len(buffer); i++ {
+	for i := range buffer {
 		x := buffer[i]
 		y := coeff.b0*x + coeff.b1*s.x1 + coeff.b2*s.x2 - coeff.a1*s.y1 - coeff.a2*s.y2
 		s.x2, s.x1 = s.x1, x
@@ -361,13 +379,18 @@ func (d *peakDetector) update(buf sointu.AudioBuffer) (ret PeakResult) {
 	if len(d.tmp2) < len4 {
 		d.tmp2 = append(d.tmp2, make([]float32, len4-len(d.tmp2))...)
 	}
-	for chn := 0; chn < 2; chn++ {
+	for chn := range 2 {
 		// deinterleave the channels
-		for i := 0; i < len(buf); i++ {
+		for i := range buf {
 			d.tmp[i] = buf[i][chn]
 		}
 		// 4x oversample the signal
-		o := d.states[chn].Oversample(d.tmp[:len(buf)], d.tmp2)
+		var o []float32
+		if d.oversampling {
+			o = d.states[chn].Oversample(d.tmp[:len(buf)], d.tmp2)
+		} else {
+			o = d.tmp[:len(buf)]
+		}
 		// take absolute value of the oversampled signal
 		vek32.Abs_Inplace(o)
 		p := vek32.Max(o)
@@ -375,24 +398,24 @@ func (d *peakDetector) update(buf sointu.AudioBuffer) (ret PeakResult) {
 		for i := range d.windows {
 			d.windows[i][chn].WriteWrapSingle(p)
 			windowPeak := vek32.Max(d.windows[i][chn].Buffer)
-			ret[chn][i+int(PeakMomentary)] = Decibel(10 * math.Log10(float64(windowPeak)))
+			ret[i+int(PeakMomentary)][chn] = amplitudeToDecibel(windowPeak)
 		}
 		if d.maxPower[chn] < p {
 			d.maxPower[chn] = p
 		}
-		ret[int(PeakIntegrated)][chn] = Decibel(10 * math.Log10(float64(d.maxPower[chn])))
+		ret[int(PeakIntegrated)][chn] = amplitudeToDecibel(d.maxPower[chn])
 	}
 	return
 }
 
 func (d *peakDetector) reset() {
-	for chn := 0; chn < 2; chn++ {
+	for chn := range 2 {
 		d.states[chn].history = [11]float32{}
 		for i := range d.windows[chn] {
-			d.windows[chn][i].Cursor = 0
-			l := len(d.windows[chn][i].Buffer)
-			d.windows[chn][i].Buffer = d.windows[chn][i].Buffer[:0]
-			d.windows[chn][i].Buffer = append(d.windows[chn][i].Buffer, make([]float32, l)...)
+			d.windows[i][chn].Cursor = 0
+			l := len(d.windows[i][chn].Buffer)
+			d.windows[i][chn].Buffer = d.windows[i][chn].Buffer[:0]
+			d.windows[i][chn].Buffer = append(d.windows[i][chn].Buffer, make([]float32, l)...)
 		}
 		d.maxPower[chn] = 0
 	}

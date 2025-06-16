@@ -15,8 +15,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
-	"gioui.org/widget/material"
 	"github.com/vsariola/sointu/tracker"
 )
 
@@ -29,32 +27,28 @@ type DragList struct {
 	dragID       pointer.ID
 	tags         []bool
 	swapped      bool
-	focused      bool
 	requestFocus bool
 }
 
 type FilledDragListStyle struct {
-	dragList       *DragList
-	HoverColor     color.NRGBA
-	SelectedColor  color.NRGBA
-	CursorColor    color.NRGBA
-	ScrollBarWidth unit.Dp
-	element, bg    func(gtx C, i int) D
+	dragList   *DragList
+	HoverColor color.NRGBA
+	Cursor     CursorStyle
+	Selection  CursorStyle
+	ScrollBar  ScrollBarStyle
 }
 
 func NewDragList(model tracker.List, axis layout.Axis) *DragList {
 	return &DragList{TrackerList: model, List: &layout.List{Axis: axis}, HoverItem: -1, ScrollBar: &ScrollBar{Axis: axis}}
 }
 
-func FilledDragList(th *material.Theme, dragList *DragList, element, bg func(gtx C, i int) D) FilledDragListStyle {
+func FilledDragList(th *Theme, dragList *DragList) FilledDragListStyle {
 	return FilledDragListStyle{
-		dragList:       dragList,
-		element:        element,
-		bg:             bg,
-		HoverColor:     dragListHoverColor,
-		SelectedColor:  dragListSelectedColor,
-		CursorColor:    cursorColor,
-		ScrollBarWidth: unit.Dp(10),
+		dragList:   dragList,
+		HoverColor: hoveredColor(th.Selection.Active),
+		Cursor:     th.Cursor,
+		Selection:  th.Selection,
+		ScrollBar:  th.ScrollBar,
 	}
 }
 
@@ -62,15 +56,15 @@ func (d *DragList) Focus() {
 	d.requestFocus = true
 }
 
-func (d *DragList) Focused() bool {
-	return d.focused
+func (d *DragList) Focused(gtx C) bool {
+	return gtx.Focused(d)
 }
 
 func (s FilledDragListStyle) LayoutScrollBar(gtx C) D {
-	return s.dragList.ScrollBar.Layout(gtx, s.ScrollBarWidth, s.dragList.TrackerList.Count(), &s.dragList.List.Position)
+	return s.dragList.ScrollBar.Layout(gtx, &s.ScrollBar, s.dragList.TrackerList.Count(), &s.dragList.List.Position)
 }
 
-func (s FilledDragListStyle) Layout(gtx C) D {
+func (s FilledDragListStyle) Layout(gtx C, element, bg func(gtx C, i int) D) D {
 	swap := 0
 
 	defer op.Offset(image.Point{}).Push(gtx.Ops).Pop()
@@ -119,12 +113,11 @@ func (s FilledDragListStyle) Layout(gtx C) D {
 		}
 		switch ke := event.(type) {
 		case key.FocusEvent:
-			s.dragList.focused = ke.Focus
-			if !s.dragList.focused {
+			if !ke.Focus {
 				s.dragList.TrackerList.SetSelected2(s.dragList.TrackerList.Selected())
 			}
 		case key.Event:
-			if !s.dragList.focused || ke.State != key.Press {
+			if !s.dragList.Focused(gtx) || ke.State != key.Press {
 				break
 			}
 			s.dragList.command(gtx, ke)
@@ -146,13 +139,17 @@ func (s FilledDragListStyle) Layout(gtx C) D {
 		cursorBg := func(gtx C) D {
 			var color color.NRGBA
 			if s.dragList.TrackerList.Selected() == index {
-				if s.dragList.focused {
-					color = s.CursorColor
+				if gtx.Focused(s.dragList) {
+					color = s.Cursor.Active
 				} else {
-					color = s.SelectedColor
+					color = s.Cursor.Inactive
 				}
 			} else if between(s.dragList.TrackerList.Selected(), index, s.dragList.TrackerList.Selected2()) {
-				color = s.SelectedColor
+				if gtx.Focused(s.dragList) {
+					color = s.Selection.Active
+				} else {
+					color = s.Selection.Inactive
+				}
 			} else if s.dragList.HoverItem == index {
 				color = s.HoverColor
 			}
@@ -194,7 +191,7 @@ func (s FilledDragListStyle) Layout(gtx C) D {
 			area.Pop()
 			if index == s.dragList.TrackerList.Selected() && isMutable {
 				for {
-					target := &s.dragList.focused
+					target := &s.dragList.drag
 					if s.dragList.drag {
 						target = nil
 					}
@@ -234,18 +231,18 @@ func (s FilledDragListStyle) Layout(gtx C) D {
 					}
 				}
 				area := clip.Rect(rect).Push(gtx.Ops)
-				event.Op(gtx.Ops, &s.dragList.focused)
+				event.Op(gtx.Ops, &s.dragList.drag)
 				pointer.CursorGrab.Add(gtx.Ops)
 				area.Pop()
 			}
 			return layout.Dimensions{Size: gtx.Constraints.Min}
 		}
 		macro := op.Record(gtx.Ops)
-		dims := s.element(gtx, index)
+		dims := element(gtx, index)
 		call := macro.Stop()
 		gtx.Constraints.Min = dims.Size
-		if s.bg != nil {
-			s.bg(gtx, index)
+		if bg != nil {
+			bg(gtx, index)
 		}
 		cursorBg(gtx)
 		call.Add(gtx.Ops)
@@ -356,18 +353,4 @@ func (l *DragList) CenterOn(item int) {
 
 func between(a, b, c int) bool {
 	return (a <= b && b <= c) || (c <= b && b <= a)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
