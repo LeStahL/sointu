@@ -11,7 +11,7 @@ type (
 	optionalIntData interface {
 		Unpack() (int, bool)
 		Value() int
-		Range() intRange
+		Range() IntRange
 
 		setValue(int)
 		unsetValue()

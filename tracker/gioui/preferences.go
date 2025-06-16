@@ -13,13 +13,14 @@ import (
 
 type (
 	Preferences struct {
-		Window   WindowPreferences
+		Window WindowPreferences
 	}
 
 	WindowPreferences struct {
-		Width     int
-		Height    int
-		Maximized bool `yaml:",omitempty"`
+		Width      int
+		Height     int
+		Maximized  bool `yaml:",omitempty"`
+		Fullscreen bool `yaml:",omitempty"`
 	}
 )
 
