@@ -187,6 +187,33 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
 		{Name: "channel", MinValue: 0, MaxValue: 6, CanSet: true, CanModulate: false, DisplayFunc: arrDispFunc(channelNames[:])}},
 	"sync": []UnitParameter{},
+	// units210:
+	"envelopexp": []UnitParameter{
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "exp_attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
+		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "exp_decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
+		{Name: "sustain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
+	"atan": []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
+	"signlogic": []UnitParameter{
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	},
+	"illogic": []UnitParameter{
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	},
 }
 
 var channelNames = [...]string{"left", "right", "aux1 left", "aux1 right", "aux2 left", "aux2 right", "aux3 left", "aux3 right"}
@@ -252,6 +279,10 @@ func formatFloat(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
+func envelopExpDisplayFunc(v int) (string, string) {
+	return fmt.Sprintf("= %.3f", math.Pow(2, 2*float64(64-v)/32)), ""
+}
+
 // When unit.Type = "oscillator", its unit.Parameter["Type"] tells the type of
 // the oscillator. There is five different oscillator types, so these consts
 // just enumerate them.
@@ -315,9 +346,9 @@ func (u *Unit) StackChange() int {
 		return 0
 	}
 	switch u.Type {
-	case "addp", "mulp", "pop", "out", "outaux", "aux":
+	case "addp", "mulp", "pop", "out", "outaux", "aux", "signlogic", "illogic":
 		return -1 - u.Parameters["stereo"]
-	case "envelope", "oscillator", "push", "noise", "receive", "loadnote", "loadval", "in", "compressor":
+	case "envelope", "oscillator", "push", "noise", "receive", "loadnote", "loadval", "in", "compressor", "envelopexp":
 		return 1 + u.Parameters["stereo"]
 	case "pan":
 		return 1 - u.Parameters["stereo"]
@@ -337,9 +368,9 @@ func (u *Unit) StackNeed() int {
 		return 0
 	}
 	switch u.Type {
-	case "", "envelope", "oscillator", "noise", "receive", "loadnote", "loadval", "in":
+	case "", "envelope", "oscillator", "noise", "receive", "loadnote", "loadval", "in", "envelopexp":
 		return 0
-	case "mulp", "mul", "add", "addp", "xch":
+	case "mulp", "mul", "add", "addp", "xch", "signlogic", "illogic":
 		return 2 * (1 + u.Parameters["stereo"])
 	case "speed":
 		return 1
