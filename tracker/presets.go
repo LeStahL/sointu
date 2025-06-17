@@ -82,7 +82,8 @@ var defaultUnits = map[string]sointu.Unit{
 	"envelopexp": {Type: "envelopexp", Parameters: map[string]int{"stereo": 0, "attack": 64, "exp_attack": 64, "decay": 64, "exp_decay": 64, "sustain": 64, "release": 64, "gain": 64}},
 	"atan":       {Type: "atan", Parameters: map[string]int{"stereo": 0}},
 	"signlogic":  {Type: "signlogic", Parameters: map[string]int{"stereo": 0, "st0": 64, "st1": 64, "AND": 0, "OR": 0, "XOR": 0}},
-	"illogic":    {Type: "illogic", Parameters: map[string]int{"stereo": 0, "st0": 64, "st1": 64, "AND": 0, "OR": 0, "XOR": 0}},
+	"bytelogic":  {Type: "bytelogic", Parameters: map[string]int{"stereo": 0, "st0": 64, "st1": 64, "AND": 0, "OR": 0, "XOR": 0}},
+	"floatlogic": {Type: "floatlogic", Parameters: map[string]int{"stereo": 0, "st0": 64, "st1": 64, "AND": 0, "OR": 0, "XOR": 0}},
 }
 
 var defaultInstrument = sointu.Instrument{

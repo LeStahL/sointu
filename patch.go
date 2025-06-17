@@ -188,7 +188,7 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "channel", MinValue: 0, MaxValue: 6, CanSet: true, CanModulate: false, DisplayFunc: arrDispFunc(channelNames[:])}},
 	"sync": []UnitParameter{},
 	// units210:
-	"envelopexp": []UnitParameter{
+	"envelopexp": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
 		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
 		{Name: "exp_attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
@@ -197,8 +197,8 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "sustain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
 		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
-	"atan": []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
-	"signlogic": []UnitParameter{
+	"atan": {{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
+	"signlogic": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
 		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
@@ -206,7 +206,15 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	},
-	"illogic": []UnitParameter{
+	"bytelogic": {
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	},
+	"floatlogic": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
 		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
@@ -346,7 +354,7 @@ func (u *Unit) StackChange() int {
 		return 0
 	}
 	switch u.Type {
-	case "addp", "mulp", "pop", "out", "outaux", "aux", "signlogic", "illogic":
+	case "addp", "mulp", "pop", "out", "outaux", "aux", "signlogic", "bytelogic", "floatlogic":
 		return -1 - u.Parameters["stereo"]
 	case "envelope", "oscillator", "push", "noise", "receive", "loadnote", "loadval", "in", "compressor", "envelopexp":
 		return 1 + u.Parameters["stereo"]
@@ -370,7 +378,7 @@ func (u *Unit) StackNeed() int {
 	switch u.Type {
 	case "", "envelope", "oscillator", "noise", "receive", "loadnote", "loadval", "in", "envelopexp":
 		return 0
-	case "mulp", "mul", "add", "addp", "xch", "signlogic", "illogic":
+	case "mulp", "mul", "add", "addp", "xch", "signlogic", "bytelogic", "floatlogic":
 		return 2 * (1 + u.Parameters["stereo"])
 	case "speed":
 		return 1

@@ -211,7 +211,7 @@ su_op_xch_mono:
 
 {{- if .HasOp "signlogic"}}
 ;-------------------------------------------------------------------------------
-;   QMs LOGIC experiments: mix two signals by sign
+;   QMs LOGIC experiments: choose between two signals depending on their sign
 ;-------------------------------------------------------------------------------
 ;   Mono:   a b -> signlogic(a,b)
 ;   Stereo: a b c d -> signlogic(a,c) signlogic(b,d)
@@ -221,7 +221,7 @@ su_op_xch_mono:
     jnc     su_op_signlogic_mono
 {{- end}}
 {{- if .Stereo "signlogic"}}
-; qm210: for now, do nothing in stereo
+; qm210: STEREO NOT YET IMPLEMENTED
     fstp   st3
     fstp   st2
     ret
@@ -237,37 +237,36 @@ su_op_signlogic_mono:
 {{end}}
 
 
-{{- if .HasOp "illogic"}}
+{{- if .HasOp "bytelogic"}}
 ;-------------------------------------------------------------------------------
 ;   QMs LOGIC experiments: mix two signals by logic operations between bytes
 ;                          this makes little sense because of IEEE-754 floats...
-;
 ;   TODO: we might optimize / deduplicate this later, if it is even relevant!
 ;-------------------------------------------------------------------------------
-{{.Func "su_op_illogic" "Opcode"}}
-{{- if .StereoAndMono "illogic"}}
-    jnc     su_op_illogic_mono
+{{.Func "su_op_bytelogic" "Opcode"}}
+{{- if .StereoAndMono "bytelogic"}}
+    jnc     su_op_bytelogic_mono
 {{- end}}
-{{- if .Stereo "illogic"}}
-; qm210: for now, do nothing in stereo
+{{- if .Stereo "bytelogic"}}
+; qm210: STEREO NOT YET IMPLEMENTED
     fstp   st3
     fstp   st2
     ret
 {{- end}}
-{{- if .StereoAndMono "illogic"}}
-su_op_illogic_mono:
+{{- if .StereoAndMono "bytelogic"}}
+su_op_bytelogic_mono:
 {{- end}}
-{{- if .Mono "illogic"}}                         ; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
+{{- if .Mono "bytelogic"}}                         ; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
     {{.Prepare (.Float 4.6566129e-10)}}
     ; qm210: get the two top stack elements into the workspace ...
     fld    st1                                   ; FPU: src1 src0 src1
     fstp   dword [{{.WRK}}]                      ; FPU: src0 src1       .WRK: 4bytes(src1)
     fst    dword [{{.WRK}}+4]                    ; FPU: src0 src1       .WRK: 4bytes(src1) 4bytes(src0)
     ; qm210: ... so we can assemble the partial result on the FPU stack.
-    fld    dword [{{.Input "illogic" "st0"}}]    ; FPU: gain0 src0 src1
+    fld    dword [{{.Input "bytelogic" "st0"}}]  ; FPU: gain0 src0 src1
     fmulp  st1                                   ; FPU: (gain0*src0) src1
     fxch                                         ; FPU: src1 (gain0*src0)
-    fld    dword [{{.Input "illogic" "st1"}}]    ; FPU: gain1 src1 (gain0*src0)
+    fld    dword [{{.Input "bytelogic" "st1"}}]  ; FPU: gain1 src1 (gain0*src0)
     fmulp  st1                                   ; FPU: (gain1*src1) (gain0*src0)
     faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0) = input_mix
     ; qm210: Now, seems like I can use eax and ecx for the logic operations...
@@ -280,7 +279,7 @@ su_op_illogic_mono:
     pop    {{.AX}}
     fld    dword [{{.Use (.Float 4.6566129e-10)}}]
     fmulp  st1
-    fld    dword [{{.Input "illogic" "AND"}}]
+    fld    dword [{{.Input "bytelogic" "AND"}}]
     fmulp  st1
     faddp  st1                                   ; ((AND result) + input_mix)
     ; now the OR (ecx is still there)
@@ -291,7 +290,7 @@ su_op_illogic_mono:
      pop    {{.AX}}
      fld    dword [{{.Use (.Float 4.6566129e-10)}}]
      fmulp  st1
-     fld    dword [{{.Input "illogic" "OR"}}]
+     fld    dword [{{.Input "bytelogic" "OR"}}]
      fmulp  st1
      faddp  st1
      ; same old for the XOR
@@ -302,9 +301,80 @@ su_op_illogic_mono:
      pop    {{.AX}}
      fld    dword [{{.Use (.Float 4.6566129e-10)}}]
      fmulp  st1
-     fld    dword [{{.Input "illogic" "XOR"}}]
+     fld    dword [{{.Input "bytelogic" "XOR"}}]
      fmulp  st1
-     faddp  st1                                 ; FPU stack: (XOR result) + (OR result) + (AND result) + (input mix)
+     faddp  st1                                     ; FPU stack: (XOR result) + (OR result) + (AND result) + (input mix)
     ret
 {{- end}}
 {{end}}
+
+
+{{- if .HasOp "floatlogic"}}
+;-------------------------------------------------------------------------------
+;   units210: QMs LOGIC experiments:
+;             use some simple float operations that somehow mimic logic behaviour
+;   TODO: might optimize / deduplicate, if it actually appears usable
+;-------------------------------------------------------------------------------
+{{.Func "su_op_bytelogic" "Opcode"}}
+{{- if .StereoAndMono "floatlogic"}}
+    jnc     su_op_floatlogic_mono
+{{- end}}
+{{- if .Stereo "floatlogic"}}
+; qm210: STEREO NOT YET IMPLEMENTED
+    fstp   st3
+    fstp   st2
+    ret
+{{- end}}
+{{- if .StereoAndMono "floatlogic"}}
+su_op_bytelogic_mono:
+{{- end}}
+{{- if .Mono "floatlogic"}}                      ; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
+    ; qm210: get the two top stack elements into the workspace ...
+    fld    st1                                   ; FPU: src1 src0 src1
+    fstp   dword [{{.WRK}}]                      ; FPU: src0 src1       .WRK: 4bytes(src1)
+    fst    dword [{{.WRK}}+4]                    ; FPU: src0 src1       .WRK: 4bytes(src1) 4bytes(src0)
+    ; qm210: ... so we can assemble the partial result on the FPU stack.
+    fld    dword [{{.Input "floatlogic" "st0"}}] ; FPU: gain0 src0 src1
+    fmulp  st1                                   ; FPU: (gain0*src0) src1
+    fxch                                         ; FPU: src1 (gain0*src0)
+    fld    dword [{{.Input "floatlogic" "st1"}}] ; FPU: gain1 src1 (gain0*src0)
+    fmulp  st1                                   ; FPU: (gain1*src1) (gain0*src0)
+    faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0)
+                                                 ;    = inputMix
+    ; qm210: <-- the mixing part is always the same for our logic operations
+    ; qm210: load the sources again from .WRK for the AND (max(src0, src1)) operation
+    fld    dword [{{.WRK}}]                      ; FPU: src1 input_mix
+    fld    dword [{{.WRK}}+4]                    ; FPU: src0 src1 input_mix
+    fld    st1                                   ; FPU: src1 src0 src1 input_mix
+    fcomi  st1                                   ; (st0 src1) < (st1 src0) ?
+    fcmovb st0, st1                              ; if so -> FPU: src0 src0 src1 inputMix
+                                                 ;             = srcMax src0 src1 inputMix
+    fld    dword [{{.Input "floatlogic" "AND"}}] ; andGain srcMax src0 src1 inputMix
+    fmulp  st1                                   ; (andGain*srcMax) src0 src1 inputMix
+                                                 ; = andResult src0 src1 inputMix
+    ; now the OR (min(src0, src1)) operation
+    fld    st1                                   ; src0 andResult src0 src1 inputMix
+    fcomi  st3                                   ; (st0 src0) < (st3 src1) ?
+    fcmovnb st0, st3                             ; if not -> FPU: src1 andResult src0 src1 inputMix
+                                                 ;              = srcMin andResult src0 src1 inputMix
+    fld    dword [{{.Input "floatlogic" "OR"}}]  ; orGain srcMin andResult src0 src1 inputMix
+    fmulp  st1                                   ; (orGain*srcMin) andResult src0 src1 inputMix
+                                                 ; = orResult andResult src0 src1 inputMix
+    ; and then the XOR which I model as (|src0 - src1| - 1):
+    fld    st3                                   ; src1 orResult andResult src0 src1 inputMix
+    fsub   st0, st1                              ; (src1-src0) orResult andResult src0 src1 inputMix
+    fabs                                         ; |src1-src0| orResult andResult src0 src1 inputMix
+    fld    1                                     ; 1 |src1-src0| orResult andResult src0 src1 inputMix
+    fsubp  st1, st0                              ; (|src1-src0|-1) orResult andResult src0 src1 inputMix
+    fld    dword [{{.Input "floatlogic" "XOR"}}] ; xorGain (|src1-src0|-1) orResult andResult src0 src1 inputMix
+    fmulp  st1                                   ; xorResult orResult andResult src0 src1 inputMix
+    faddp  st1                                   ; (xorResult+orResult) andResult src0 src1 inputMix
+    faddp  st1                                   ; (xorResult+orResult+andResult) src0 src1 inputMix
+    ; get rid of src0 and src1...
+    fxch   st1                                   ; src0 (xorResult+orResult+andResult) src1 inputMix
+    fstp                                         ; (xorResult+orResult+andResult) src1 inputMix
+    fxch   st1                                   ; src1 (xorResult+orResult+andResult) inputMix
+    fstp                                         ; (xorResult+orResult+andResult) inputMix
+    faddp  st1                                   ; (xorResult+orResult+andResult+inputMix)
+    ret
+

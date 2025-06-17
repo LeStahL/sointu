@@ -5,8 +5,10 @@ import (
 	"unsafe"
 )
 
-func processUnits210(stack []float32, unit *unit, opCode byte, stereo bool, params [8]float32, voices []voice) []float32 {
+func processUnits210(stack []float32, unit *unit, opCode byte, stereo bool, params [8]float32, voices []voice) ([]float32, bool) {
 	l := len(stack)
+	exists := true
+
 	switch opCode {
 
 	case opEnvelopexp:
@@ -64,18 +66,31 @@ func processUnits210(stack []float32, unit *unit, opCode byte, stereo bool, para
 			stack = stack[:l-1]
 		}
 
-	case opIllogic:
+	case opBytelogic:
 		if stereo {
-			stack[l-3] = applyIllogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
-			stack[l-4] = applyIllogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+			stack[l-3] = applyByteLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+			stack[l-4] = applyByteLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
 			stack = stack[:l-2]
 		} else {
-			stack[l-2] = applyIllogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+			stack[l-2] = applyByteLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
 			stack = stack[:l-1]
 		}
+
+	case opFloatlogic:
+		if stereo {
+			stack[l-3] = applyFloatLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+			stack[l-4] = applyFloatLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+			stack = stack[:l-2]
+		} else {
+			stack[l-2] = applyFloatLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+			stack = stack[:l-1]
+		}
+
+	default:
+		exists = false
 	}
 
-	return stack
+	return stack, exists
 }
 
 func scaledEnvelopExponent(value float32) float64 {
@@ -113,7 +128,7 @@ func applySignLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amoun
 		amountXor*valueXor
 }
 
-func applyIllogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountXor float32) float32 {
+func applyByteLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountXor float32) float32 {
 	// first implement, think about usefulness later.
 	aAddr := (*uint32)(unsafe.Pointer(&valueA))
 	bAddr := (*uint32)(unsafe.Pointer(&valueB))
@@ -129,4 +144,20 @@ func applyIllogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountX
 	outXor := amountXor * float32(*cXor) * invMaxInt
 	inMix := amountA*valueA + amountB*valueB
 	return inMix + outAnd + outOr + outXor
+}
+
+func applyFloatLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountXor float32) float32 {
+	// this might make the most sense of the *Logic opcodes (if any), but we'll see about that.
+	valueAnd := min(valueA, valueB)
+	valueOr := max(valueA, valueB)
+	// this XOR as (|A-B|-1.) is a bit of stretch, but it is what it is
+	valueXor := valueA - valueB
+	if valueXor < 0 {
+		valueXor = -valueXor
+	}
+	valueXor -= 1.
+	return amountA*valueA + amountB*valueB +
+		amountAnd*valueAnd +
+		amountOr*valueOr +
+		amountXor*valueXor
 }
