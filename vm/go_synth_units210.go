@@ -103,9 +103,6 @@ func scaledAtan(value float32) float32 {
 
 func applySignLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountXor float32) float32 {
 	// first implement, think about usefulness later.
-	if valueA == 0 || valueB == 0 {
-		return 0
-	}
 	valueAnd := valueA
 	if valueA > 0 {
 		valueAnd = valueB
