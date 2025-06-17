@@ -199,7 +199,7 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
 	"atan": {{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
 	"signlogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
 		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
@@ -207,7 +207,7 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	},
 	"bytelogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
 		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
@@ -215,7 +215,7 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	},
 	"floatlogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
 		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},

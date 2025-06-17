@@ -177,7 +177,7 @@ su_op_push_mono:
 {{- if .Mono "push"}}
     fld     st0
     ret
-    {{- end}}
+{{- end}}
 {{end}}
 
 
@@ -217,19 +217,9 @@ su_op_xch_mono:
 ;   Stereo: a b c d -> signlogic(a,c) signlogic(b,d)
 ;-------------------------------------------------------------------------------
 {{.Func "su_op_signlogic" "Opcode"}}
-{{- if .StereoAndMono "signlogic"}}
-    jnc     su_op_signlogic_mono
-{{- end}}
 {{- if .Stereo "signlogic"}}
-; qm210: STEREO NOT YET IMPLEMENTED
-    fstp   st3
-    fstp   st2
-    ret
+    {{.Call "su_effects_reducingstereohelper"}}
 {{- end}}
-{{- if .StereoAndMono "signlogic"}}
-su_op_signlogic_mono:
-{{- end}}
-{{- if .Mono "signlogic"}}; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
     ; qm210: get the two top stack elements into the workspace ...
     fld    st1                                   ; FPU: src1 src0 src1
     fstp   dword [{{.WRK}}]                      ; FPU: src0 src1       .WRK: 4bytes(src1)
@@ -285,7 +275,7 @@ st0_contains_first_XOR_decision:
     fstsw  ax
     sahf
     fstp                                         ; xorPredecision orResult andResult src0 src1 inputMix
-    fld    1                                     ; 1 xorPredecision orResult andResult src0 src1 inputMix
+    fld1                                         ; 1 xorPredecision orResult andResult src0 src1 inputMix
     jg st0_contains_second_XOR_decision
     fchs                                         ; -1 xorPredecision orResult andResult src0 src1 inputMix
 st0_contains_second_XOR_decision:
@@ -299,7 +289,6 @@ st0_contains_second_XOR_decision:
     fstp
     faddp  st1
     ret
-{{- end}}
 {{end}}
 
 
@@ -310,19 +299,9 @@ st0_contains_second_XOR_decision:
 ;   TODO: we might optimize / deduplicate this later, if it is even relevant!
 ;-------------------------------------------------------------------------------
 {{.Func "su_op_bytelogic" "Opcode"}}
-{{- if .StereoAndMono "bytelogic"}}
-    jnc     su_op_bytelogic_mono
-{{- end}}
 {{- if .Stereo "bytelogic"}}
-; qm210: STEREO NOT YET IMPLEMENTED
-    fstp   st3
-    fstp   st2
-    ret
+    {{.Call "su_effects_reducingstereohelper"}}
 {{- end}}
-{{- if .StereoAndMono "bytelogic"}}
-su_op_bytelogic_mono:
-{{- end}}
-{{- if .Mono "bytelogic"}}                         ; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
     {{.Prepare (.Float 4.6566129e-10)}}
     ; qm210: get the two top stack elements into the workspace ...
     fld    st1                                   ; FPU: src1 src0 src1
@@ -349,29 +328,28 @@ su_op_bytelogic_mono:
     fmulp  st1
     faddp  st1                                   ; ((AND result) + input_mix)
     ; now the OR (ecx is still there)
-     mov    eax, dword [{{.WRK}}+4]
-     or     eax, ecx                             ; CPU stack: (src1 OR src0)
-     push   {{.AX}}
-     fild   dword [{{.SP}}]
-     pop    {{.AX}}
-     fld    dword [{{.Use (.Float 4.6566129e-10)}}]
-     fmulp  st1
-     fld    dword [{{.Input "bytelogic" "OR"}}]
-     fmulp  st1
-     faddp  st1
-     ; same old for the XOR
-     mov    eax, dword [{{.WRK}}+4]
-     xor    eax, ecx
-     push   {{.AX}}                                ; CPU stack: (src1 XOR src0)
-     fild   dword [{{.SP}}]
-     pop    {{.AX}}
-     fld    dword [{{.Use (.Float 4.6566129e-10)}}]
-     fmulp  st1
-     fld    dword [{{.Input "bytelogic" "XOR"}}]
-     fmulp  st1
-     faddp  st1                                     ; FPU stack: (XOR result) + (OR result) + (AND result) + (input mix)
+    mov    eax, dword [{{.WRK}}+4]
+    or     eax, ecx                              ; CPU stack: (src1 OR src0)
+    push   {{.AX}}
+    fild   dword [{{.SP}}]
+    pop    {{.AX}}
+    fld    dword [{{.Use (.Float 4.6566129e-10)}}]
+    fmulp  st1
+    fld    dword [{{.Input "bytelogic" "OR"}}]
+    fmulp  st1
+    faddp  st1
+    ; same old for the XOR
+    mov    eax, dword [{{.WRK}}+4]
+    xor    eax, ecx
+    push   {{.AX}}                               ; CPU stack: (src1 XOR src0)
+    fild   dword [{{.SP}}]
+    pop    {{.AX}}
+    fld    dword [{{.Use (.Float 4.6566129e-10)}}]
+    fmulp  st1
+    fld    dword [{{.Input "bytelogic" "XOR"}}]
+    fmulp  st1
+    faddp  st1                                   ; FPU stack: (XOR result) + (OR result) + (AND result) + (input mix)
     ret
-{{- end}}
 {{end}}
 
 
@@ -382,20 +360,9 @@ su_op_bytelogic_mono:
 ;   TODO: might optimize / deduplicate, if it actually appears usable
 ;-------------------------------------------------------------------------------
 {{.Func "su_op_floatlogic" "Opcode"}}
-{{- if .StereoAndMono "floatlogic"}}
-    jnc     su_op_floatlogic_mono
-{{- end}}
 {{- if .Stereo "floatlogic"}}
-; qm210: STEREO NOT YET IMPLEMENTED
-    fstp   st3
-    fstp   st2
-    ret
+    {{.Call "su_effects_reducingstereohelper"}}
 {{- end}}
-{{- if .StereoAndMono "floatlogic"}}
-su_op_floatlogic_mono:
-{{- end}}
-{{- if .Mono "floatlogic"}}                      ; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
-    ; qm210: get the two top stack elements into the workspace ...
     fld    st1                                   ; FPU: src1 src0 src1
     fstp   dword [{{.WRK}}]                      ; FPU: src0 src1       .WRK: 4bytes(src1)
     fst    dword [{{.WRK}}+4]                    ; FPU: src0 src1       .WRK: 4bytes(src1) 4bytes(src0)
@@ -405,8 +372,7 @@ su_op_floatlogic_mono:
     fxch                                         ; FPU: src1 (gain0*src0)
     fld    dword [{{.Input "floatlogic" "st1"}}] ; FPU: gain1 src1 (gain0*src0)
     fmulp  st1                                   ; FPU: (gain1*src1) (gain0*src0)
-    faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0)
-                                                 ;    = inputMix
+    faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0) = inputMix
     ; qm210: <-- the mixing part is always the same for our logic operations
     ; qm210: load the sources again from .WRK
     fld    dword [{{.WRK}}]                      ; FPU: src1 input_mix
@@ -429,21 +395,19 @@ su_op_floatlogic_mono:
                                                  ; = orResult andResult src0 src1 inputMix
     ; and then the XOR which I model as (|src0 - src1| - 1):
     fld    st3                                   ; src1 orResult andResult src0 src1 inputMix
-    fsub   st0, st1                              ; (src1-src0) orResult andResult src0 src1 inputMix
+    fsub   st0, st3                              ; (src1-src0) orResult andResult src0 src1 inputMix
     fabs                                         ; |src1-src0| orResult andResult src0 src1 inputMix
-    fld    1                                     ; 1 |src1-src0| orResult andResult src0 src1 inputMix
-    fsubp  st1, st0                              ; (|src1-src0|-1) orResult andResult src0 src1 inputMix
+    fld1                                         ; 1 |src1-src0| orResult andResult src0 src1 inputMix
+    fsubp  st1                              ; (|src1-src0|-1) orResult andResult src0 src1 inputMix
     fld    dword [{{.Input "floatlogic" "XOR"}}] ; xorGain (|src1-src0|-1) orResult andResult src0 src1 inputMix
     fmulp  st1                                   ; xorResult orResult andResult src0 src1 inputMix
     faddp  st1                                   ; (xorResult+orResult) andResult src0 src1 inputMix
     faddp  st1                                   ; (xorResult+orResult+andResult) src0 src1 inputMix
     ; get rid of src0 and src1...
-    fxch   st1                                   ; src0 (xorResult+orResult+andResult) src1 inputMix
-    fstp                                         ; (xorResult+orResult+andResult) src1 inputMix
-    fxch   st1                                   ; src1 (xorResult+orResult+andResult) inputMix
-    fstp                                         ; (xorResult+orResult+andResult) inputMix
+    fxch                                         ; src0 (xorResult+orResult+andResult) src1 inputMix
+    fstp   st0                                   ; (xorResult+orResult+andResult) src1 inputMix
+    fxch                                         ; src1 (xorResult+orResult+andResult) inputMix
+    fstp   st0                                   ; (xorResult+orResult+andResult) inputMix
     faddp  st1                                   ; (xorResult+orResult+andResult+inputMix)
     ret
-{{- end}}
 {{end}}
-

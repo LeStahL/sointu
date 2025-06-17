@@ -182,8 +182,36 @@ su_waveshaper:
     sub     {{.WRK}}, 16       ; move WRK back to where it was
 su_effects_stereohelper_mono:
     ret                   ; return to process l/mono sound
-
 {{end}}
+
+
+{{- if .HasCall "su_effects_reducingstereohelper" }}
+;-------------------------------------------------------------------------------
+; -- QM-WIP TODO for the logic units in stereo -- does not work yet !!
+; -- probably the FPU stack in the functions can only has max 5 elements then!
+; -- fix when stereo is actually needed...
+;
+;   su_effects_doublestereohelper: similar to su_effects_reducing,
+;   but for functions that reduce the stack by one, i.e.
+;   incoming: (l1 r1 l2 r2)
+;   -> move -> (r2 r1 l2 l1) -> (r1 r2 l2 l1)
+;   -> run caller -> (r l2 l1)
+;   -> move -> (l1 r2 r)
+;   -> run caller -> (l r)
+;-------------------------------------------------------------------------------
+{{.Func "su_effects_reducingstereohelper"}}
+    jnc     su_effects_reducingstereohelper_mono ; carry is still the stereo bit
+    add     {{.WRK}}, 16
+    fxch    st3             ; r2 r1 l2 l1
+    fxch    st1             ; r1 r2 l2 l1
+    call    [{{.SP}}]       ; call whoever called me... -> r l2 l1
+    fxch    st2             ; l1 l2 r
+    call    [{{.SP}}]       ; call whoever called me... -> l r
+    sub     {{.WRK}}, 16       ; move WRK back to where it was
+su_effects_reducingstereohelper_mono:
+    ret                   ; return to process l/mono sound
+{{end}}
+
 
 {{- if .HasCall "su_clip"}}
 {{.Func "su_clip"}}
