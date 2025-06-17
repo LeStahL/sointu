@@ -235,10 +235,10 @@ su_op_signlogic_mono:
     fstp   dword [{{.WRK}}]                      ; FPU: src0 src1       .WRK: 4bytes(src1)
     fst    dword [{{.WRK}}+4]                    ; FPU: src0 src1       .WRK: 4bytes(src1) 4bytes(src0)
     ; qm210: ... so we can assemble the partial result on the FPU stack.
-    fld    dword [{{.Input "floatlogic" "st0"}}] ; FPU: gain0 src0 src1
+    fld    dword [{{.Input "signlogic" "st0"}}]  ; FPU: gain0 src0 src1
     fmulp  st1                                   ; FPU: (gain0*src0) src1
     fxch                                         ; FPU: src1 (gain0*src0)
-    fld    dword [{{.Input "floatlogic" "st1"}}] ; FPU: gain1 src1 (gain0*src0)
+    fld    dword [{{.Input "signlogic" "st1"}}]  ; FPU: gain1 src1 (gain0*src0)
     fmulp  st1                                   ; FPU: (gain1*src1) (gain0*src0)
     faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0)
                                                  ;    = inputMix
@@ -254,7 +254,7 @@ su_op_signlogic_mono:
     fstp                                         ; src0 src1 inputMix
     fld    st1                                   ; src1 src0 src1 inputMix
 st0_contains_AND_decision:                       ; andDecision src0 src1 inputMix
-    fld    dword [{{.Input "floatlogic" "AND"}}] ; andGain andDecision src0 src1 inputMix
+    fld    dword [{{.Input "signlogic" "AND"}}]  ; andGain andDecision src0 src1 inputMix
     fmulp  st1                                   ; andResult src0 src1 inputMix
     ; then my OR is (src1 > 0 ? src1 : src0)
     fld    st2                                   ; src1 andResult src0 src1 inputMix
@@ -265,7 +265,7 @@ st0_contains_AND_decision:                       ; andDecision src0 src1 inputMi
     fstp                                         ; andResult src0 src1 inputMix
     fld    st1                                   ; src0 andResult src0 src1 inputMix
 st0_contains_OR_decision:
-    fld    dword [{{.Input "floatlogic" "OR"}}]  ; orGain orDecision andResult src0 src1 inputMix
+    fld    dword [{{.Input "signlogic" "OR"}}]   ; orGain orDecision andResult src0 src1 inputMix
     fmulp  st1                                   ; orResult andResult src0 src1 inputMix
     ; then my XOR (clearly!) is (src0 < 0 ? src1 : src0) * (sign(src1) == sign(src0) ? -1 : 1)
     ; i.e. first load the first decision (src0 < 0 ? src1 : src0) into st0
@@ -290,7 +290,7 @@ st0_contains_first_XOR_decision:
     fchs                                         ; -1 xorPredecision orResult andResult src0 src1 inputMix
 st0_contains_second_XOR_decision:
     fmulp  st1                                   ; xorDecision orResult andResult src0 src1
-    fld    dword [{{.Input "floatlogic" "OR"}}]  ; xorGain xorDecision orResult andResult src0 src1 inputMix
+    fld    dword [{{.Input "signlogic" "XOR"}}]  ; xorGain xorDecision orResult andResult src0 src1 inputMix
     fmulp  st1                                   ; xorResult orResult andResult src0 src1 inputMix
 ; now add the shit together (must skip src0 and src1 on the way)
     faddp  st1
@@ -381,7 +381,7 @@ su_op_bytelogic_mono:
 ;             use some simple float operations that somehow mimic logic behaviour
 ;   TODO: might optimize / deduplicate, if it actually appears usable
 ;-------------------------------------------------------------------------------
-{{.Func "su_op_bytelogic" "Opcode"}}
+{{.Func "su_op_floatlogic" "Opcode"}}
 {{- if .StereoAndMono "floatlogic"}}
     jnc     su_op_floatlogic_mono
 {{- end}}
@@ -392,7 +392,7 @@ su_op_bytelogic_mono:
     ret
 {{- end}}
 {{- if .StereoAndMono "floatlogic"}}
-su_op_bytelogic_mono:
+su_op_floatlogic_mono:
 {{- end}}
 {{- if .Mono "floatlogic"}}                      ; FPU: src0 src1 (src0 = most current signal on stack, i.e. LOWER unit)
     ; qm210: get the two top stack elements into the workspace ...
@@ -444,4 +444,6 @@ su_op_bytelogic_mono:
     fstp                                         ; (xorResult+orResult+andResult) inputMix
     faddp  st1                                   ; (xorResult+orResult+andResult+inputMix)
     ret
+{{- end}}
+{{end}}
 
