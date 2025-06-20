@@ -241,53 +241,52 @@ su_op_xch_mono:
     fstsw  ax                                    ; -> comparison status in AX register
     sahf                                         ; -> and then into CPU condition flags
     jng st0_contains_AND_decision                ; -> src0 < 0 -> jump to keep src0 at st0
-    fstp                                         ; src0 src1 inputMix
+    fstp   st0                                   ; src0 src1 inputMix
     fld    st1                                   ; src1 src0 src1 inputMix
 st0_contains_AND_decision:                       ; andDecision src0 src1 inputMix
     fld    dword [{{.Input "signlogic" "AND"}}]  ; andGain andDecision src0 src1 inputMix
     fmulp  st1                                   ; andResult src0 src1 inputMix
+    faddp  st3                                   ; src0 src1 (inputMix+AND = result)
     ; then my OR is (src1 > 0 ? src1 : src0)
-    fld    st2                                   ; src1 andResult src0 src1 inputMix
+    fld    st1                                   ; src1 src0 src1 result
     ftst                                         ; src1 <=> 0?
     fstsw  ax                                    ; ... as above ...
     sahf                                         ; ... as above ...
     jg st0_contains_OR_decision                  ; -> src1 > 0 -> jump to keep src1 there
-    fstp                                         ; andResult src0 src1 inputMix
-    fld    st1                                   ; src0 andResult src0 src1 inputMix
+    fstp   st0                                   ; src0 src1 result
+    fld    st0                                   ; src0 src0 src1 result
 st0_contains_OR_decision:
-    fld    dword [{{.Input "signlogic" "OR"}}]   ; orGain orDecision andResult src0 src1 inputMix
-    fmulp  st1                                   ; orResult andResult src0 src1 inputMix
+    fld    dword [{{.Input "signlogic" "OR"}}]   ; orGain orDecision src0 src1 result
+    fmulp  st1                                   ; orResult src0 src1 result
+    faddp  st3                                   ; src0 src1 result
     ; then my XOR (clearly!) is (src0 < 0 ? src1 : src0) * (sign(src1) == sign(src0) ? -1 : 1)
     ; i.e. first load the first decision (src0 < 0 ? src1 : src0) into st0
-    fld    st2                                   ; src0 orResult andResult src0 src1 inputMix
+    fld    st0                                   ; src0 src0 src1 result
     ftst
     fstsw  ax
     sahf
     jg st0_contains_first_XOR_decision
-    fstp                                         ; orResult andResult src0 src1 inputMix
-    fld    st3                                   ; src1 orResult andResult src0 src1 inputMix
+    fstp   st0                                   ; src0 src1 result
+    fld    st1                                   ; src1 src0 src1 result
 st0_contains_first_XOR_decision:
     ; then second decision is same as (sign(src1*src0) > 0 ? 1 : -1)
-    fld    st4                                   ; src1 xorPredecision orResult andResult src0 src1 inputMix -> 7
-    fld    st4                                   ; src0 src1 xorPredecision orResult andResult src0 src1 inputMix -> 8
-    fmulp  st1                                   ; (src0*src1) xorPredecision orResult andResult src0 src1 inputMix
+    fld    st2                                   ; src1 xorPredecision src0 src1 result
+    fld    st2                                   ; src0 src1 xorPredecision src0 src1 result
+    fmulp  st1                                   ; (src0*src1) xorPredecision src0 src1 result
     ftst
     fstsw  ax
     sahf
-    fstp                                         ; xorPredecision orResult andResult src0 src1 inputMix
-    fld1                                         ; 1 xorPredecision orResult andResult src0 src1 inputMix
+    fstp   st0                                   ; xorPredecision src0 src1 result
+    fld1                                         ; 1 xorPredecision src0 src1 result
     jg st0_contains_second_XOR_decision
-    fchs                                         ; -1 xorPredecision orResult andResult src0 src1 inputMix
+    fchs                                         ; -1 xorPredecision src0 src1 result
 st0_contains_second_XOR_decision:
-    fmulp  st1                                   ; xorDecision orResult andResult src0 src1
-    fld    dword [{{.Input "signlogic" "XOR"}}]  ; xorGain xorDecision orResult andResult src0 src1 inputMix
-    fmulp  st1                                   ; xorResult orResult andResult src0 src1 inputMix
-; now add the shit together (must skip src0 and src1 on the way)
-    faddp  st1
-    faddp  st1
-    fstp
-    fstp
-    faddp  st1
+    fmulp  st1                                   ; xorDecision src0 src1
+    fld    dword [{{.Input "signlogic" "XOR"}}]  ; xorGain xorDecision src0 src1 result
+    fmulp  st1                                   ; xorResult src0 src1 result
+    faddp  st3                                   ; src0 src1 result
+    fstp   st0                                   ; src1 result
+    fstp   st0                                   ; result
     ret
 {{end}}
 
@@ -313,7 +312,7 @@ st0_contains_second_XOR_decision:
     fxch                                         ; FPU: src1 (gain0*src0)
     fld    dword [{{.Input "bytelogic" "st1"}}]  ; FPU: gain1 src1 (gain0*src0)
     fmulp  st1                                   ; FPU: (gain1*src1) (gain0*src0)
-    faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0) = input_mix
+    faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0) = inputMix
     ; qm210: Now, seems like I can use eax and ecx for the logic operations...
     mov    eax, dword [{{.WRK}}+4]
     mov    ecx, dword [{{.WRK}}]
@@ -326,7 +325,7 @@ st0_contains_second_XOR_decision:
     fmulp  st1
     fld    dword [{{.Input "bytelogic" "AND"}}]
     fmulp  st1
-    faddp  st1                                   ; ((AND result) + input_mix)
+    faddp  st1                                   ; ((AND result) + inputMix)
     ; now the OR (ecx is still there)
     mov    eax, dword [{{.WRK}}+4]
     or     eax, ecx                              ; CPU stack: (src1 OR src0)
@@ -348,7 +347,7 @@ st0_contains_second_XOR_decision:
     fmulp  st1
     fld    dword [{{.Input "bytelogic" "XOR"}}]
     fmulp  st1
-    faddp  st1                                   ; FPU stack: (XOR result) + (OR result) + (AND result) + (input mix)
+    faddp  st1                                   ; FPU stack: (XOR+OR+AND+inputMix)
     ret
 {{end}}
 
@@ -375,39 +374,37 @@ st0_contains_second_XOR_decision:
     faddp  st1                                   ; FPU: (gain1*src1 + gain0*src0) = inputMix
     ; qm210: <-- the mixing part is always the same for our logic operations
     ; qm210: load the sources again from .WRK
-    fld    dword [{{.WRK}}]                      ; FPU: src1 input_mix
-    fld    dword [{{.WRK}}+4]                    ; FPU: src0 src1 input_mix
+    fld    dword [{{.WRK}}]                      ; FPU: src1 inputMix
+    fld    dword [{{.WRK}}+4]                    ; FPU: src0 src1 inputMix
     ; and now the AND (max(src0, src1)) operation
-    fld    st1                                   ; FPU: src1 src0 src1 input_mix
+    fld    st1                                   ; FPU: src1 src0 src1 inputMix
     fcomi  st1                                   ; (st0 src1) < (st1 src0) ?
     fcmovb st0, st1                              ; if so -> FPU: src0 src0 src1 inputMix
                                                  ;             = srcMax src0 src1 inputMix
     fld    dword [{{.Input "floatlogic" "AND"}}] ; andGain srcMax src0 src1 inputMix
     fmulp  st1                                   ; (andGain*srcMax) src0 src1 inputMix
                                                  ; = andResult src0 src1 inputMix
+    faddp  st3                                   ; src0 src1 (inputMix+andResult = result)
     ; now the OR (min(src0, src1)) operation
-    fld    st1                                   ; src0 andResult src0 src1 inputMix
+    fld    st0                                   ; src0 src0 src1 result
     fcomi  st3                                   ; (st0 src0) < (st3 src1) ?
-    fcmovnb st0, st3                             ; if not -> FPU: src1 andResult src0 src1 inputMix
-                                                 ;              = srcMin andResult src0 src1 inputMix
-    fld    dword [{{.Input "floatlogic" "OR"}}]  ; orGain srcMin andResult src0 src1 inputMix
-    fmulp  st1                                   ; (orGain*srcMin) andResult src0 src1 inputMix
-                                                 ; = orResult andResult src0 src1 inputMix
+    fcmovnb st0, st2                             ; if not -> FPU: src1 src0 src1 result
+                                                 ;              = srcMin src0 src1 result
+    fld    dword [{{.Input "floatlogic" "OR"}}]  ; orGain srcMin src0 src1 result
+    fmulp  st1                                   ; (orGain*srcMin) src0 src1 result
+                                                 ; = orResult src0 src1 result
+    faddp  st3                                   ; src0 src1 (result+orResult -> result)
     ; and then the XOR which I model as (|src0 - src1| - 1):
-    fld    st3                                   ; src1 orResult andResult src0 src1 inputMix
-    fsub   st0, st3                              ; (src1-src0) orResult andResult src0 src1 inputMix
-    fabs                                         ; |src1-src0| orResult andResult src0 src1 inputMix
-    fld1                                         ; 1 |src1-src0| orResult andResult src0 src1 inputMix
-    fsubp  st1                              ; (|src1-src0|-1) orResult andResult src0 src1 inputMix
-    fld    dword [{{.Input "floatlogic" "XOR"}}] ; xorGain (|src1-src0|-1) orResult andResult src0 src1 inputMix
-    fmulp  st1                                   ; xorResult orResult andResult src0 src1 inputMix
-    faddp  st1                                   ; (xorResult+orResult) andResult src0 src1 inputMix
-    faddp  st1                                   ; (xorResult+orResult+andResult) src0 src1 inputMix
+    fld    st1                                   ; src1 src0 src1 result
+    fsub   st0, st1                              ; (src1-src0) src0 src1 result
+    fabs                                         ; |src1-src0| src0 src1 result
+    fld1                                         ; 1 |src1-src0| src0 src1 result
+    fsubp  st1                                   ; (|src1-src0|-1) src0 src1 result
+    fld    dword [{{.Input "floatlogic" "XOR"}}] ; xorGain (|src1-src0|-1) src0 src1 result
+    fmulp  st1                                   ; xorResult src0 src1 result
+    faddp  st3                                   ; src0 src1 (result+xorResult -> result)
     ; get rid of src0 and src1...
-    fxch                                         ; src0 (xorResult+orResult+andResult) src1 inputMix
-    fstp   st0                                   ; (xorResult+orResult+andResult) src1 inputMix
-    fxch                                         ; src1 (xorResult+orResult+andResult) inputMix
-    fstp   st0                                   ; (xorResult+orResult+andResult) inputMix
-    faddp  st1                                   ; (xorResult+orResult+andResult+inputMix)
+    fstp   st0                                   ; src1 result
+    fstp   st0                                   ; result
     ret
 {{end}}
