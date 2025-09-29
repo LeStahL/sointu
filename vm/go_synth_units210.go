@@ -96,18 +96,12 @@ func applyFloatLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amou
 }
 
 func NewReeeverbCore() reverbCore {
-	// QM: didn't find an easy accessible source for the constant (sointu always seems to use 44100)
-	const loopSeconds = 1.
+	// QM: didn't find an easy accessible source for the (seemingly) constant sample rate
 	const sampleRate = 44100.
 	const numberEchoes = 200
-	// right now, we are using the delayline-buffers for this as well, maybe we should use our own buffers.
-	// but as we do use them, the our "work data" have to fit twice in there (original + feedback)
-	// WIP: just getting rid of the coupling to the delaylines
-	//delayBufferSize := len((delayline{}).buffer)
-	//maxLoopSeconds := float32(delayBufferSize/2) / sampleRate
-	//if loopSeconds > maxLoopSeconds {
-	//	loopSeconds = maxLoopSeconds
-	//}
+	const loopSeconds = 1.
+	// currently, the bufferSize is not limited (and larger than 65536), but if we need this:
+	// maxLoopSeconds := float32(maxBufferSize/2) / sampleRate
 	spacingSamples := uint32(sampleRate * loopSeconds / float32(numberEchoes))
 	loopSamples := spacingSamples * uint32(numberEchoes)
 	return reverbCore{
