@@ -454,3 +454,13 @@ su_op_compressor_mono:
     ret
 {{end}}
 
+
+{{- if .HasOp "reeeverb"}}
+;; WIP: Reverb Stub
+{{.Func "su_op_reeeverb" "Opcode"}}
+{{- if .Stereo "reeeverb"}}
+    {{.Call "su_effects_stereohelper"}}
+{{- end}}
+    ; pass through
+    ret
+{{end}}

@@ -84,6 +84,9 @@ var defaultUnits = map[string]sointu.Unit{
 	"signlogic":  {Type: "signlogic", Parameters: map[string]int{"stereo": 0, "st0": 64, "st1": 64, "AND": 0, "OR": 0, "XOR": 0}},
 	"bytelogic":  {Type: "bytelogic", Parameters: map[string]int{"stereo": 0, "st0": 64, "st1": 64, "AND": 0, "OR": 0, "XOR": 0}},
 	"floatlogic": {Type: "floatlogic", Parameters: map[string]int{"stereo": 0, "st0": 64, "st1": 64, "AND": 0, "OR": 0, "XOR": 0}},
+	"feeelter":   {Type: "feeelter", Parameters: map[string]int{"stereo": 0, "frequency": 255, "freq_fine": 64, "resonance": 0, "param4": 64, "param5": 0}},
+	"reeeverb": {Type: "reeeverb",
+		Parameters: map[string]int{"decay": 64, "dry": 128, "pregain": 40, "feedback": 40, "stereo": 0}},
 }
 
 var defaultInstrument = sointu.Instrument{

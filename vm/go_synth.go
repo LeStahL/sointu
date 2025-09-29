@@ -27,6 +27,7 @@ type (
 		stack      []float32
 		state      synthState
 		delaylines []delayline
+		nepenthene nepentheneCore
 	}
 
 	// GoSynther is a Synther implementation that can converts patches into
@@ -63,6 +64,25 @@ type (
 		dcIn        float32
 		dcFiltState float32
 	}
+
+	nepentheneCore struct {
+		echosets       []nepentheneEchoes
+		echoNumber     uint32
+		loopSamples    uint32
+		spacingSamples uint32
+		sampleRate     float32
+	}
+
+	nepentheneEchoes struct {
+		// qm: modeled after https://amalgamatedsignals.com/nepenthe
+		//	   might move elsewhere, but I didn't figure a better place
+		params [200]struct {
+			pos       uint32
+			sign      bool
+			amplitude float32
+		}
+		currentDecay float32
+	}
 )
 
 const (
@@ -98,8 +118,14 @@ func (s GoSynther) Synth(patch sointu.Patch, bpm int) (sointu.Synth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error compiling %v", err)
 	}
-	ret := &GoSynth{bytecode: *bytecode, stack: make([]float32, 0, 4), delaylines: make([]delayline, patch.NumDelayLines())}
+	ret := &GoSynth{
+		bytecode:   *bytecode,
+		stack:      make([]float32, 0, 4),
+		delaylines: make([]delayline, patch.NumDelayLines()),
+		nepenthene: NewNepentheneCore(1., 200),
+	}
 	ret.state.randSeed = 1
+	ret.nepenthene.updateEchoes(patch.CollectEchoSetParams(), &ret.state)
 	return ret, nil
 }
 
@@ -131,6 +157,7 @@ func (s *GoSynth) Update(patch sointu.Patch, bpm int) error {
 	for len(s.delaylines) < patch.NumDelayLines() {
 		s.delaylines = append(s.delaylines, delayline{})
 	}
+	s.nepenthene.updateEchoes(patch.CollectEchoSetParams(), &s.state)
 	if needsRefresh {
 		for i := range s.state.voices {
 			for j := range s.state.voices[i].units {
@@ -156,6 +183,7 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 		operandsInstr := s.bytecode.Operands
 		opcodes, operands := opcodesInstr, operandsInstr
 		delaylines := s.delaylines
+		echosets := s.nepenthene.echosets
 		voicesRemaining := s.bytecode.NumVoices
 		voices := s.state.voices[:]
 		units := voices[0].units[:]
@@ -578,13 +606,118 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 				}
 			case opSync:
 				break
-			default:
-				// qm210: I collected the unofficial units210 in a separate file
-				var valid bool
-				stack, valid = processUnits210(stack, unit, opNoStereo, stereo, params, voices)
-				if !valid {
-					return samples, time, errors.New("invalid / unimplemented opcode")
+			////// --> QM: units210
+			case opEnvelopexp:
+				if !voice.sustain {
+					unit.state[0] = envStateRelease // set state to release
 				}
+				state := unit.state[0]
+				level := unit.state[1]
+				exponent := float64(1)
+				baseline := float32(0)
+				switch state {
+				case envStateAttack:
+					exponent = scaledEnvelopExponent(params[1])
+					level += nonLinearMap(params[0])
+					if level >= 1 {
+						level = 1
+						state = envStateDecay
+					}
+				case envStateDecay:
+					exponent = scaledEnvelopExponent(params[3])
+					sustain := params[4]
+					baseline = sustain
+					level -= nonLinearMap(params[2])
+					if level <= sustain {
+						level = sustain
+					}
+				case envStateRelease:
+					level -= nonLinearMap(params[5])
+					if level <= 0 {
+						level = 0
+					}
+				}
+				unit.state[0] = state
+				unit.state[1] = level
+				expLevel := float32(math.Pow(float64(level), exponent))
+				output := (baseline + (1-baseline)*expLevel) * params[6]
+				stack = append(stack, output)
+				if stereo {
+					stack = append(stack, output)
+				}
+			case opAtan:
+				if stereo {
+					stack[l-2] = scaledAtan(stack[l-2])
+				}
+				stack[l-1] = scaledAtan(stack[l-1])
+			case opSignlogic: // QM: units210
+				if stereo {
+					stack[l-3] = applySignLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applySignLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applySignLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
+			case opBytelogic: // QM: units210
+				if stereo {
+					stack[l-3] = applyByteLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applyByteLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applyByteLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
+			case opFloatlogic: // QM: units210
+				if stereo {
+					stack[l-3] = applyFloatLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applyFloatLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applyFloatLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
+			case opFeeelter: // QM: units210
+				// Feeelter is WIP for the future :)
+				break
+			case opReeeverb: // QM: units210
+				drygain := params[1]
+				pregain2 := params[2] * params[2]
+				fbgain2 := params[3] * params[3]
+				t := uint16(s.state.globalTime)
+				stackIndex := l - channels
+				var d *delayline
+				var echoset *nepentheneEchoes
+				for i := 0; i < channels; i++ {
+					signal := stack[stackIndex]
+					output := drygain * signal
+					// no inner loop because no Varargs - only one delay per channel
+					d, delaylines = &delaylines[0], delaylines[1:]
+					echoset, echosets = &echosets[0], echosets[1:]
+					posRead := uint32(unit.state[i])
+					posFb := uint32(unit.state[2+i])
+					bufferSize := 2 * s.nepenthene.loopSamples
+					if t == 0 { // quick way to initialize a state (is there a better one?)
+						posFb += s.nepenthene.loopSamples
+					}
+					for _, echo := range echoset.params {
+						gain := echo.amplitude * pregain2
+						pos := (posRead + echo.pos) % bufferSize
+						// this now is like a loop over an input of 1, i.e. [signal]
+						d.buffer[pos] += gain * signal
+					}
+					// and this is now a loop over an output of 1:
+					output += d.buffer[posRead]
+					d.buffer[posFb] += d.buffer[posRead] * fbgain2
+					d.buffer[posRead] = 0
+					unit.state[i] = float32((posRead + 1) % bufferSize)
+					unit.state[2+i] = float32((posFb + 1) % bufferSize)
+					stack[stackIndex] = output
+					stackIndex++
+				}
+			////// <-- QM: END OF units210
+			default:
+				return samples, time, errors.New("invalid / unimplemented opcode")
 			}
 			units = units[1:]
 		}

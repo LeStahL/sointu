@@ -5,93 +5,7 @@ import (
 	"unsafe"
 )
 
-func processUnits210(stack []float32, unit *unit, opCode byte, stereo bool, params [8]float32, voices []voice) ([]float32, bool) {
-	l := len(stack)
-	exists := true
-
-	switch opCode {
-
-	case opEnvelopexp:
-		if !voices[0].sustain {
-			unit.state[0] = envStateRelease // set state to release
-		}
-		state := unit.state[0]
-		level := unit.state[1]
-		exponent := float64(1)
-		baseline := float32(0)
-		switch state {
-		case envStateAttack:
-			exponent = scaledEnvelopExponent(params[1])
-			level += nonLinearMap(params[0])
-			if level >= 1 {
-				level = 1
-				state = envStateDecay
-			}
-		case envStateDecay:
-			exponent = scaledEnvelopExponent(params[3])
-			sustain := params[4]
-			baseline = sustain
-			level -= nonLinearMap(params[2])
-			if level <= sustain {
-				level = sustain
-			}
-		case envStateRelease:
-			level -= nonLinearMap(params[5])
-			if level <= 0 {
-				level = 0
-			}
-		}
-		unit.state[0] = state
-		unit.state[1] = level
-		expLevel := float32(math.Pow(float64(level), exponent))
-		output := (baseline + (1-baseline)*expLevel) * params[6]
-		stack = append(stack, output)
-		if stereo {
-			stack = append(stack, output)
-		}
-
-	case opAtan:
-		if stereo {
-			stack[l-2] = scaledAtan(stack[l-2])
-		}
-		stack[l-1] = scaledAtan(stack[l-1])
-
-	case opSignlogic:
-		if stereo {
-			stack[l-3] = applySignLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
-			stack[l-4] = applySignLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
-			stack = stack[:l-2]
-		} else {
-			stack[l-2] = applySignLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
-			stack = stack[:l-1]
-		}
-
-	case opBytelogic:
-		if stereo {
-			stack[l-3] = applyByteLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
-			stack[l-4] = applyByteLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
-			stack = stack[:l-2]
-		} else {
-			stack[l-2] = applyByteLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
-			stack = stack[:l-1]
-		}
-
-	case opFloatlogic:
-		if stereo {
-			stack[l-3] = applyFloatLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
-			stack[l-4] = applyFloatLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
-			stack = stack[:l-2]
-		} else {
-			stack[l-2] = applyFloatLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
-			stack = stack[:l-1]
-		}
-
-	default:
-		exists = false
-	}
-
-	return stack, exists
-}
+// outsources functions from go_synth.go, the units210 opCodes
 
 func scaledEnvelopExponent(value float32) float64 {
 	return math.Pow(2, 6*(0.5-float64(value)))
@@ -154,7 +68,50 @@ func applyFloatLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amou
 	}
 	valueXor -= 1.
 	return amountA*valueA + amountB*valueB +
-		amountAnd*valueAnd +
-		amountOr*valueOr +
-		amountXor*valueXor
+		amountAnd*valueAnd + amountOr*valueOr + amountXor*valueXor
+}
+
+func NewNepentheneCore(loopSeconds float32, numberEchoes int) nepentheneCore {
+	// QM: didn't find an easy accessible source for the constant (sointu always seems to use 44100)
+	const sampleRate = 44100.
+	// right now, we are using the delayline-buffers for this as well, maybe we should use our own buffers.
+	// but as we do use them, the our "work data" have to fit twice in there (original + feedback)
+	delayBufferSize := len((delayline{}).buffer)
+	maxLoopSeconds := float32(delayBufferSize/2) / sampleRate
+	if loopSeconds > maxLoopSeconds {
+		loopSeconds = maxLoopSeconds
+	}
+	spacingSamples := uint32(sampleRate * loopSeconds / float32(numberEchoes))
+	loopSamples := spacingSamples * uint32(numberEchoes)
+	return nepentheneCore{
+		echosets:       make([]nepentheneEchoes, 0),
+		echoNumber:     uint32(numberEchoes),
+		loopSamples:    loopSamples,
+		spacingSamples: spacingSamples,
+		sampleRate:     sampleRate,
+	}
+}
+
+func (n *nepentheneCore) updateEchoes(decayParams []int, state *synthState) {
+	for d, decayParam := range decayParams {
+		if len(n.echosets) <= d {
+			n.echosets = append(n.echosets, nepentheneEchoes{})
+		}
+		echo := n.echosets[d]
+		decay := nonLinearMap(float32(decayParam) / 128.0)
+		if echo.currentDecay == decay {
+			continue
+		}
+		echo.currentDecay = decay
+		rndFloat := state.rand()
+		rndSign := rndFloat >= 0
+		if !rndSign {
+			rndFloat = -rndFloat
+		}
+		for p, param := range echo.params {
+			param.pos = uint32((float32(p) + rndFloat) * float32(n.spacingSamples))
+			param.sign = rndSign
+			param.amplitude = 0 // TODO evaluate exp function
+		}
+	}
 }

@@ -152,10 +152,10 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "sendpop", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
 	"envelope": []UnitParameter{
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
-		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
+		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
 		{Name: "sustain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
 		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
 	"noise": []UnitParameter{
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
@@ -190,12 +190,12 @@ var UnitTypes = map[string]([]UnitParameter){
 	// units210:
 	"envelopexp": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
 		{Name: "exp_attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
-		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
 		{Name: "exp_decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
 		{Name: "sustain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100) }},
+		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
 		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
 	"atan": {{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
 	"signlogic": {
@@ -221,6 +221,21 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	},
+	"feeelter": {
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "frequency", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: true},
+		{Name: "freq_fine", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "resonance", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "param4", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "param5", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	},
+	"reeeverb": {
+		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: false, DisplayFunc: engineeringTimeDisplay},
+		{Name: "dry", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "pregain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "feedback", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	},
 }
 
@@ -281,6 +296,10 @@ func engineeringTime(sec float64) (string, string) {
 		return fmt.Sprintf("%.2f", sec*1e3), "ms"
 	}
 	return fmt.Sprintf("%.2f", sec), "s"
+}
+
+func engineeringTimeDisplay(v int) (string, string) {
+	return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100)
 }
 
 func formatFloat(f float64) string {
@@ -431,10 +450,28 @@ func (p Patch) NumDelayLines() int {
 		for _, unit := range instr.Units {
 			if unit.Type == "delay" {
 				total += len(unit.VarArgs) * instr.NumVoices
+
+			} else if unit.Type == "reeeverb" {
+				// QM units210: take one delayline per channel and voice for now:
+				total += 2 * instr.NumVoices
 			}
 		}
 	}
 	return total
+}
+
+func (p Patch) CollectEchoSetParams() []int {
+	// - QM units210: needs one store per usage of the "reeeverb" for the "echo parameters"
+	//   (initialized pseudorandomly, but dependent on the "decay" parameter)
+	var decays []int
+	for _, instr := range p {
+		for _, unit := range instr.Units {
+			if unit.Type == "reeeverb" {
+				decays = append(decays, unit.Parameters["decay"])
+			}
+		}
+	}
+	return decays
 }
 
 // NumSyns return the total number of sync outputs used in the patch; summing
