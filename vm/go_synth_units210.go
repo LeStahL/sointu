@@ -7,6 +7,35 @@ import (
 
 // outsources functions from go_synth.go, the units210 opCodes
 
+type (
+	reverbCore struct {
+		echoes         []reverbVoice
+		echoNumber     int
+		loopSamples    uint32
+		bufferSize     uint32
+		spacingSamples uint32
+		sampleRate     float32
+	}
+
+	ReverbNeeds struct {
+		decayParam      int
+		numberOfBuffers int
+	}
+
+	reverbVoice struct {
+		// qm: modeled after https://amalgamatedsignals.com/nepenthe
+		//	   might move elsewhere, but I didn't figure a better place
+		params []struct {
+			pos       uint32
+			amplitude float32
+		}
+		buffers           [][]float32
+		currentDecayParam int
+		normalizationGain float32
+		feedbackGain      float32
+	}
+)
+
 func scaledEnvelopExponent(value float32) float64 {
 	return math.Pow(2, 6*(0.5-float64(value)))
 }
@@ -71,20 +100,21 @@ func applyFloatLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amou
 		amountAnd*valueAnd + amountOr*valueOr + amountXor*valueXor
 }
 
-func NewNepentheneCore(loopSeconds float32, numberEchoes int) nepentheneCore {
+func NewReeeverbCore(loopSeconds float32, numberEchoes int) reverbCore {
 	// QM: didn't find an easy accessible source for the constant (sointu always seems to use 44100)
 	const sampleRate = 44100.
 	// right now, we are using the delayline-buffers for this as well, maybe we should use our own buffers.
 	// but as we do use them, the our "work data" have to fit twice in there (original + feedback)
-	delayBufferSize := len((delayline{}).buffer)
-	maxLoopSeconds := float32(delayBufferSize/2) / sampleRate
-	if loopSeconds > maxLoopSeconds {
-		loopSeconds = maxLoopSeconds
-	}
+	// WIP: just getting rid of the coupling to the delaylines
+	//delayBufferSize := len((delayline{}).buffer)
+	//maxLoopSeconds := float32(delayBufferSize/2) / sampleRate
+	//if loopSeconds > maxLoopSeconds {
+	//	loopSeconds = maxLoopSeconds
+	//}
 	spacingSamples := uint32(sampleRate * loopSeconds / float32(numberEchoes))
 	loopSamples := spacingSamples * uint32(numberEchoes)
-	return nepentheneCore{
-		echosets:       make([]nepentheneEchoes, 0),
+	return reverbCore{
+		echoes:         make([]reverbVoice, 0),
 		echoNumber:     numberEchoes,
 		loopSamples:    loopSamples,
 		bufferSize:     2 * loopSamples,
@@ -93,27 +123,29 @@ func NewNepentheneCore(loopSeconds float32, numberEchoes int) nepentheneCore {
 	}
 }
 
-func (n *nepentheneCore) initializeAll(decayParams []int, state *synthState) {
+func (n *reverbCore) initializeAll(interlacedNeeds []int, state *synthState) {
 	// Note: as this is called directly after defining the seed at startup,
 	// these turn out always the same. That's nice for development,
 	// but might become changeable later on (like echoNumber / bufferSize)
-	n.echosets = make([]nepentheneEchoes, len(decayParams))
-	for d := range decayParams {
-		n.initializeNew(d, decayParams[d], state)
+	n.echoes = make([]reverbVoice, len(interlacedNeeds)/2)
+	for i := 0; i < len(n.echoes); i++ {
+		n.initializeNew(i, interlacedNeeds[2*i], interlacedNeeds[2*i+1], state)
 	}
 }
 
-func (n *nepentheneCore) initializeNew(index int, decayParam int, state *synthState) {
-	n.echosets[index].currentDecayParam = decayParam
-	n.echosets[index].params = make([]struct {
+func (n *reverbCore) initializeNew(index int, decayParam int, nBuffers int, state *synthState) {
+	echo := &n.echoes[index]
+	echo.currentDecayParam = decayParam
+	echo.params = make([]struct {
 		pos       uint32
 		amplitude float32
 	}, n.echoNumber)
+	echo.buffers = make([][]float32, nBuffers)
 	n.initializeEchoes(index, state)
 }
 
-func (n *nepentheneCore) initializeEchoes(index int, state *synthState) {
-	echo := &n.echosets[index]
+func (n *reverbCore) initializeEchoes(index int, state *synthState) {
+	echo := &n.echoes[index]
 	decayLength := n.decaySamplesFrom(echo.currentDecayParam)
 	for p := range echo.params {
 		params := &echo.params[p]
@@ -129,18 +161,23 @@ func (n *nepentheneCore) initializeEchoes(index int, state *synthState) {
 	}
 	echo.normalizationGain = 90.0 / float32(n.echoNumber)
 	echo.feedbackGain = decayShape(n.loopSamples, decayLength)
+	for b := range echo.buffers {
+		echo.buffers[b] = make([]float32, n.bufferSize)
+	}
 }
 
-func (n *nepentheneCore) updateEchoes(decayParams []int, state *synthState) {
-	// The Nepenthene "Velvet Noise" is dependent on the decay time,
+func (n *reverbCore) updateEchoes(interlacedNeeds []int, state *synthState) {
+	// The Reeeverb "Velvet Noise" is dependent on the decay time,
 	// which is why this parameter is not modulatable
 	// (I didn't try, but it's likely way too expensive)
-	for d, decayParam := range decayParams {
-		if len(n.echosets) == d {
-			n.echosets = append(n.echosets, nepentheneEchoes{})
-			n.initializeNew(len(n.echosets)-1, decayParam, state)
+	for i := 0; i < len(interlacedNeeds)/2; i++ {
+		decayParam := interlacedNeeds[2*i]
+		nBuffers := interlacedNeeds[2*i+1]
+		if len(n.echoes) == i {
+			n.echoes = append(n.echoes, reverbVoice{})
+			n.initializeNew(len(n.echoes)-1, decayParam, nBuffers, state)
 		}
-		echo := &n.echosets[d]
+		echo := &n.echoes[i]
 		if echo.currentDecayParam == decayParam {
 			continue
 		}
@@ -153,16 +190,16 @@ func (n *nepentheneCore) updateEchoes(decayParams []int, state *synthState) {
 	}
 }
 
-func (n *nepentheneCore) decaySamplesFrom(param int) float32 {
-	return float32(nepentheneTimeFrom(param)) * n.sampleRate
+func (n *reverbCore) decaySamplesFrom(param int) float32 {
+	return float32(reeeverbTimeFrom(param)) * n.sampleRate
 }
 
-func nepentheneTimeFrom(param int) float64 {
+func reeeverbTimeFrom(param int) float64 {
 	x := float64(1+param) / 256.0
 	return 0.5 + 7.5*math.Pow(x, 1./0.7)
 }
 
-func (e *nepentheneEchoes) updateDecayAmplitude(index int, decayLength float32) {
+func (e *reverbVoice) updateDecayAmplitude(index int, decayLength float32) {
 	sign := float32(1)
 	if e.params[index].amplitude < 0 {
 		sign = -1

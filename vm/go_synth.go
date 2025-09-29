@@ -27,7 +27,7 @@ type (
 		stack      []float32
 		state      synthState
 		delaylines []delayline
-		nepenthene nepentheneCore
+		reeeverb   reverbCore
 	}
 
 	// GoSynther is a Synther implementation that can converts patches into
@@ -63,27 +63,6 @@ type (
 		dampState   float32
 		dcIn        float32
 		dcFiltState float32
-	}
-
-	nepentheneCore struct {
-		echosets       []nepentheneEchoes
-		echoNumber     int
-		loopSamples    uint32
-		bufferSize     uint32
-		spacingSamples uint32
-		sampleRate     float32
-	}
-
-	nepentheneEchoes struct {
-		// qm: modeled after https://amalgamatedsignals.com/nepenthe
-		//	   might move elsewhere, but I didn't figure a better place
-		params []struct {
-			pos       uint32
-			amplitude float32
-		}
-		currentDecayParam int
-		normalizationGain float32
-		feedbackGain      float32
 	}
 )
 
@@ -124,10 +103,10 @@ func (s GoSynther) Synth(patch sointu.Patch, bpm int) (sointu.Synth, error) {
 		bytecode:   *bytecode,
 		stack:      make([]float32, 0, 4),
 		delaylines: make([]delayline, patch.NumDelayLines()),
-		nepenthene: NewNepentheneCore(1., 200),
+		reeeverb:   NewReeeverbCore(1., 200),
 	}
 	ret.state.randSeed = 1
-	ret.nepenthene.initializeAll(patch.CollectEchoSetParams(), &ret.state)
+	ret.reeeverb.initializeAll(patch.CollectReeeverbNeeds(), &ret.state)
 	return ret, nil
 }
 
@@ -159,7 +138,7 @@ func (s *GoSynth) Update(patch sointu.Patch, bpm int) error {
 	for len(s.delaylines) < patch.NumDelayLines() {
 		s.delaylines = append(s.delaylines, delayline{})
 	}
-	s.nepenthene.updateEchoes(patch.CollectEchoSetParams(), &s.state)
+	s.reeeverb.updateEchoes(patch.CollectReeeverbNeeds(), &s.state)
 	if needsRefresh {
 		for i := range s.state.voices {
 			for j := range s.state.voices[i].units {
@@ -185,7 +164,7 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 		operandsInstr := s.bytecode.Operands
 		opcodes, operands := opcodesInstr, operandsInstr
 		delaylines := s.delaylines
-		echosets := s.nepenthene.echosets
+		reeeverbEchoes := s.reeeverb.echoes
 		voicesRemaining := s.bytecode.NumVoices
 		voices := s.state.voices[:]
 		units := voices[0].units[:]
@@ -683,39 +662,31 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 				// Feeelter is WIP for the future :)
 				break
 			case opReeeverb: // QM: units210
-				drygain := params[0]
-				pregain := params[1] * params[1]
+				drygain := params[1]
+				pregain := params[2] * params[2]
 				if s.state.globalTime == 0 { // quick way to initialize a state (is there a better one?)
-					unit.state[2] = float32(s.nepenthene.loopSamples)
-					unit.state[3] = float32(s.nepenthene.loopSamples)
+					unit.state[2] = float32(s.reeeverb.loopSamples)
+					unit.state[3] = float32(s.reeeverb.loopSamples)
 				}
+				var echo *reverbVoice
+				echo, reeeverbEchoes = &reeeverbEchoes[0], reeeverbEchoes[1:]
 				stackIndex := l - channels
-				var echoset *nepentheneEchoes
-				echoset, echosets = &echosets[0], echosets[1:]
-				var d *delayline
 				for i := 0; i < channels; i++ {
 					signal := stack[stackIndex]
 					output := drygain * signal
-					if signal != 0.0 {
-						a := 3 + 3
-						_ = a
-					}
-					// no inner loop because no Varargs - only one delay per channel
-					d, delaylines = &delaylines[0], delaylines[1:]
+					workBuffer := echo.buffers[i]
 					posRead := uint32(unit.state[i])
 					posFb := uint32(unit.state[2+i])
-					for e := 0; e < s.nepenthene.echoNumber; e++ {
-						gain := echoset.params[e].amplitude * pregain
-						pos := (posRead + echoset.params[e].pos) % s.nepenthene.bufferSize
-						// this now is like a loop over an input of 1, i.e. [signal]
-						d.buffer[pos] += gain * signal
+					for e := 0; e < s.reeeverb.echoNumber; e++ {
+						gain := echo.params[e].amplitude * pregain
+						pos := (posRead + echo.params[e].pos) % s.reeeverb.bufferSize
+						workBuffer[pos] += gain * signal
 					}
-					// and this is now a loop over an output of 1:
-					output += d.buffer[posRead]
-					d.buffer[posFb] += echoset.feedbackGain * d.buffer[posRead]
-					d.buffer[posRead] = 0
-					unit.state[i] = float32((posRead + 1) % s.nepenthene.bufferSize)
-					unit.state[2+i] = float32((posFb + 1) % s.nepenthene.bufferSize)
+					output += workBuffer[posRead]
+					workBuffer[posFb] += echo.feedbackGain * workBuffer[posRead]
+					workBuffer[posRead] = 0
+					unit.state[i] = float32((posRead + 1) % s.reeeverb.bufferSize)
+					unit.state[2+i] = float32((posFb + 1) % s.reeeverb.bufferSize)
 					stack[stackIndex] = output
 					stackIndex++
 				}

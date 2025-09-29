@@ -232,7 +232,7 @@ var UnitTypes = map[string]([]UnitParameter){
 	},
 	"reeeverb": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: false, DisplayFunc: reeeverbTimeDisplay},
+		{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: true, DisplayFunc: reeeverbTimeDisplay},
 		{Name: "dry", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "pregain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	},
@@ -310,7 +310,7 @@ func envelopExpDisplayFunc(v int) (string, string) {
 }
 
 func reeeverbTimeDisplay(v int) (string, string) {
-	// cf. go_synth_units210.go nepentheneTimeFrom(int), lost the fight to just import that
+	// cf. go_synth_units210.go reeeverbTimeFrom(int), lost the fight to just import that
 	x := float64(1+v) / 256.0
 	sec := 0.5 + 7.5*math.Pow(x, 1./0.7)
 	return fmt.Sprintf("%.3f", sec), "s"
@@ -456,31 +456,28 @@ func (p Patch) NumDelayLines() int {
 		for _, unit := range instr.Units {
 			if unit.Type == "delay" {
 				total += len(unit.VarArgs) * instr.NumVoices
-
-			} else if unit.Type == "reeeverb" {
-				// QM units210: use one delayline per channel and voice for now.
-				//				maybe these should just be completely separated.
-				total += instr.NumVoices * (1 + unit.Parameters["stereo"])
 			}
 		}
 	}
 	return total
 }
 
-func (p Patch) CollectEchoSetParams() []int {
+func (p Patch) CollectReeeverbNeeds() []int {
 	// - QM units210: needs one store per usage of the "reeeverb" for the "echo parameters"
 	//   (initialized pseudorandomly, but dependent on the "decay" parameter)
-	var decays []int
+	// - due to package structure / import difficulties, we just interlace the information
+	//   for each reverb voice here, i.e. decayParam1 numberOfBuffers1 decayParam2 numberOfBuffers2 ...
+	var result []int
 	for _, instr := range p {
 		for _, unit := range instr.Units {
 			if unit.Type == "reeeverb" {
 				for range instr.NumVoices {
-					decays = append(decays, unit.Parameters["decay"])
+					result = append(result, unit.Parameters["decay"], 1+unit.Parameters["stereo"])
 				}
 			}
 		}
 	}
-	return decays
+	return result
 }
 
 // NumSyns return the total number of sync outputs used in the patch; summing
