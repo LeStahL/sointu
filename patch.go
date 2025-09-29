@@ -222,14 +222,14 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	},
-	"feeelter": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "frequency", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: true},
-		{Name: "freq_fine", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "resonance", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "param4", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "param5", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-	},
+	//"feeelter": {
+	//	{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+	//	{Name: "frequency", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: true},
+	//	{Name: "freq_fine", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	//	{Name: "resonance", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	//	{Name: "param4", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	//	{Name: "param5", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+	//},
 	"reeeverb": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
 		{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: true, DisplayFunc: reeeverbTimeDisplay},

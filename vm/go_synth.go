@@ -658,9 +658,9 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 					stack[l-2] = applyFloatLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
 					stack = stack[:l-1]
 				}
-			case opFeeelter: // QM: units210
-				// Feeelter is WIP for the future :)
-				break
+			//case opFeeelter: // QM: units210
+			// Feeelter is WIP for the future :)
+			//break
 			case opReeeverb: // QM: units210
 				drygain := params[1]
 				pregain := params[2] * params[2]
