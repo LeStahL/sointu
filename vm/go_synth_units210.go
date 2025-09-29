@@ -85,33 +85,94 @@ func NewNepentheneCore(loopSeconds float32, numberEchoes int) nepentheneCore {
 	loopSamples := spacingSamples * uint32(numberEchoes)
 	return nepentheneCore{
 		echosets:       make([]nepentheneEchoes, 0),
-		echoNumber:     uint32(numberEchoes),
+		echoNumber:     numberEchoes,
 		loopSamples:    loopSamples,
+		bufferSize:     2 * loopSamples,
 		spacingSamples: spacingSamples,
 		sampleRate:     sampleRate,
 	}
 }
 
-func (n *nepentheneCore) updateEchoes(decayParams []int, state *synthState) {
-	for d, decayParam := range decayParams {
-		if len(n.echosets) <= d {
-			n.echosets = append(n.echosets, nepentheneEchoes{})
+func (n *nepentheneCore) initializeAll(decayParams []int, state *synthState) {
+	// Note: as this is called directly after defining the seed at startup,
+	// these turn out always the same. That's nice for development,
+	// but might become changeable later on (like echoNumber / bufferSize)
+	n.echosets = make([]nepentheneEchoes, len(decayParams))
+	for d := range decayParams {
+		n.initializeNew(d, decayParams[d], state)
+	}
+}
+
+func (n *nepentheneCore) initializeNew(index int, decayParam int, state *synthState) {
+	n.echosets[index].currentDecayParam = decayParam
+	n.echosets[index].params = make([]struct {
+		pos       uint32
+		amplitude float32
+	}, n.echoNumber)
+	n.initializeEchoes(index, state)
+}
+
+func (n *nepentheneCore) initializeEchoes(index int, state *synthState) {
+	echo := &n.echosets[index]
+	decayLength := n.decaySamplesFrom(echo.currentDecayParam)
+	for p := range echo.params {
+		params := &echo.params[p]
+		params.amplitude = 1
+		rndFloat := state.rand()
+		if rndFloat < 0 {
+			rndFloat = -rndFloat
+			params.amplitude = -1
 		}
-		echo := n.echosets[d]
-		decay := nonLinearMap(float32(decayParam) / 128.0)
-		if echo.currentDecay == decay {
+		samplePos := (float32(p) + rndFloat) * float32(n.spacingSamples)
+		params.pos = uint32(samplePos)
+		echo.updateDecayAmplitude(p, decayLength)
+	}
+	echo.normalizationGain = 90.0 / float32(n.echoNumber)
+	echo.feedbackGain = decayShape(n.loopSamples, decayLength)
+}
+
+func (n *nepentheneCore) updateEchoes(decayParams []int, state *synthState) {
+	// The Nepenthene "Velvet Noise" is dependent on the decay time,
+	// which is why this parameter is not modulatable
+	// (I didn't try, but it's likely way too expensive)
+	for d, decayParam := range decayParams {
+		if len(n.echosets) == d {
+			n.echosets = append(n.echosets, nepentheneEchoes{})
+			n.initializeNew(len(n.echosets)-1, decayParam, state)
+		}
+		echo := &n.echosets[d]
+		if echo.currentDecayParam == decayParam {
 			continue
 		}
-		echo.currentDecay = decay
-		rndFloat := state.rand()
-		rndSign := rndFloat >= 0
-		if !rndSign {
-			rndFloat = -rndFloat
+		echo.currentDecayParam = decayParam
+		decayLength := n.decaySamplesFrom(decayParam)
+		for p := range echo.params {
+			echo.updateDecayAmplitude(p, decayLength)
 		}
-		for p, param := range echo.params {
-			param.pos = uint32((float32(p) + rndFloat) * float32(n.spacingSamples))
-			param.sign = rndSign
-			param.amplitude = 0 // TODO evaluate exp function
-		}
+		echo.feedbackGain = decayShape(n.loopSamples, decayLength)
 	}
+}
+
+func (n *nepentheneCore) decaySamplesFrom(param int) float32 {
+	return float32(nepentheneTimeFrom(param)) * n.sampleRate
+}
+
+func nepentheneTimeFrom(param int) float64 {
+	x := float64(1+param) / 256.0
+	return 0.5 + 7.5*math.Pow(x, 1./0.7)
+}
+
+func (e *nepentheneEchoes) updateDecayAmplitude(index int, decayLength float32) {
+	sign := float32(1)
+	if e.params[index].amplitude < 0 {
+		sign = -1
+	}
+	decayed := decayShape(e.params[index].pos, decayLength)
+	e.params[index].amplitude = sign * decayed * e.normalizationGain
+}
+
+func decayShape(samplePosition uint32, decayLength float32) float32 {
+	// decay length is "RT60" in number of samples: (1/1000) ^ (pos/decay)
+	decayed := float32(samplePosition) / decayLength
+	return float32(math.Exp(float64(-3.*decayed) * math.Log(10.)))
 }

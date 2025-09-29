@@ -67,8 +67,9 @@ type (
 
 	nepentheneCore struct {
 		echosets       []nepentheneEchoes
-		echoNumber     uint32
+		echoNumber     int
 		loopSamples    uint32
+		bufferSize     uint32
 		spacingSamples uint32
 		sampleRate     float32
 	}
@@ -76,12 +77,13 @@ type (
 	nepentheneEchoes struct {
 		// qm: modeled after https://amalgamatedsignals.com/nepenthe
 		//	   might move elsewhere, but I didn't figure a better place
-		params [200]struct {
+		params []struct {
 			pos       uint32
-			sign      bool
 			amplitude float32
 		}
-		currentDecay float32
+		currentDecayParam int
+		normalizationGain float32
+		feedbackGain      float32
 	}
 )
 
@@ -125,7 +127,7 @@ func (s GoSynther) Synth(patch sointu.Patch, bpm int) (sointu.Synth, error) {
 		nepenthene: NewNepentheneCore(1., 200),
 	}
 	ret.state.randSeed = 1
-	ret.nepenthene.updateEchoes(patch.CollectEchoSetParams(), &ret.state)
+	ret.nepenthene.initializeAll(patch.CollectEchoSetParams(), &ret.state)
 	return ret, nil
 }
 
@@ -681,37 +683,39 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 				// Feeelter is WIP for the future :)
 				break
 			case opReeeverb: // QM: units210
-				drygain := params[1]
-				pregain2 := params[2] * params[2]
-				fbgain2 := params[3] * params[3]
-				t := uint16(s.state.globalTime)
+				drygain := params[0]
+				pregain := params[1] * params[1]
+				if s.state.globalTime == 0 { // quick way to initialize a state (is there a better one?)
+					unit.state[2] = float32(s.nepenthene.loopSamples)
+					unit.state[3] = float32(s.nepenthene.loopSamples)
+				}
 				stackIndex := l - channels
-				var d *delayline
 				var echoset *nepentheneEchoes
+				echoset, echosets = &echosets[0], echosets[1:]
+				var d *delayline
 				for i := 0; i < channels; i++ {
 					signal := stack[stackIndex]
 					output := drygain * signal
+					if signal != 0.0 {
+						a := 3 + 3
+						_ = a
+					}
 					// no inner loop because no Varargs - only one delay per channel
 					d, delaylines = &delaylines[0], delaylines[1:]
-					echoset, echosets = &echosets[0], echosets[1:]
 					posRead := uint32(unit.state[i])
 					posFb := uint32(unit.state[2+i])
-					bufferSize := 2 * s.nepenthene.loopSamples
-					if t == 0 { // quick way to initialize a state (is there a better one?)
-						posFb += s.nepenthene.loopSamples
-					}
-					for _, echo := range echoset.params {
-						gain := echo.amplitude * pregain2
-						pos := (posRead + echo.pos) % bufferSize
+					for e := 0; e < s.nepenthene.echoNumber; e++ {
+						gain := echoset.params[e].amplitude * pregain
+						pos := (posRead + echoset.params[e].pos) % s.nepenthene.bufferSize
 						// this now is like a loop over an input of 1, i.e. [signal]
 						d.buffer[pos] += gain * signal
 					}
 					// and this is now a loop over an output of 1:
 					output += d.buffer[posRead]
-					d.buffer[posFb] += d.buffer[posRead] * fbgain2
+					d.buffer[posFb] += echoset.feedbackGain * d.buffer[posRead]
 					d.buffer[posRead] = 0
-					unit.state[i] = float32((posRead + 1) % bufferSize)
-					unit.state[2+i] = float32((posFb + 1) % bufferSize)
+					unit.state[i] = float32((posRead + 1) % s.nepenthene.bufferSize)
+					unit.state[2+i] = float32((posFb + 1) % s.nepenthene.bufferSize)
 					stack[stackIndex] = output
 					stackIndex++
 				}

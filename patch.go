@@ -152,10 +152,10 @@ var UnitTypes = map[string]([]UnitParameter){
 		{Name: "sendpop", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
 	"envelope": []UnitParameter{
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
-		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
+		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
+		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
 		{Name: "sustain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
+		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
 		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
 	"noise": []UnitParameter{
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
@@ -190,12 +190,12 @@ var UnitTypes = map[string]([]UnitParameter){
 	// units210:
 	"envelopexp": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
+		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
 		{Name: "exp_attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
-		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
+		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
 		{Name: "exp_decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
 		{Name: "sustain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: engineeringTimeDisplay},
+		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
 		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
 	"atan": {{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
 	"signlogic": {
@@ -232,10 +232,9 @@ var UnitTypes = map[string]([]UnitParameter){
 	},
 	"reeeverb": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: false, DisplayFunc: engineeringTimeDisplay},
+		{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: false, DisplayFunc: reeeverbTimeDisplay},
 		{Name: "dry", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "pregain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "feedback", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	},
 }
 
@@ -298,7 +297,7 @@ func engineeringTime(sec float64) (string, string) {
 	return fmt.Sprintf("%.2f", sec), "s"
 }
 
-func engineeringTimeDisplay(v int) (string, string) {
+func nonLinearMapEngineeringTime(v int) (string, string) {
 	return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100)
 }
 
@@ -308,6 +307,12 @@ func formatFloat(f float64) string {
 
 func envelopExpDisplayFunc(v int) (string, string) {
 	return fmt.Sprintf("= %.3f", math.Pow(2, 2*float64(64-v)/32)), ""
+}
+
+func reeeverbTimeDisplay(v int) (string, string) {
+	// cf. go_synth_units210.go nepentheneTimeFrom(int), lost the fight to just import that
+	x := float64(1+v) / 256.0
+	return formatFloat(0.5 + 7.5*math.Pow(x, 1./0.7)), "ms"
 }
 
 // When unit.Type = "oscillator", its unit.Parameter["Type"] tells the type of
@@ -452,8 +457,9 @@ func (p Patch) NumDelayLines() int {
 				total += len(unit.VarArgs) * instr.NumVoices
 
 			} else if unit.Type == "reeeverb" {
-				// QM units210: take one delayline per channel and voice for now:
-				total += 2 * instr.NumVoices
+				// QM units210: use one delayline per channel and voice for now.
+				//				maybe these should just be completely separated.
+				total += instr.NumVoices * (1 + unit.Parameters["stereo"])
 			}
 		}
 	}
@@ -467,7 +473,9 @@ func (p Patch) CollectEchoSetParams() []int {
 	for _, instr := range p {
 		for _, unit := range instr.Units {
 			if unit.Type == "reeeverb" {
-				decays = append(decays, unit.Parameters["decay"])
+				for range instr.NumVoices {
+					decays = append(decays, unit.Parameters["decay"])
+				}
 			}
 		}
 	}
