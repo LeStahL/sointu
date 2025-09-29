@@ -312,7 +312,8 @@ func envelopExpDisplayFunc(v int) (string, string) {
 func reeeverbTimeDisplay(v int) (string, string) {
 	// cf. go_synth_units210.go nepentheneTimeFrom(int), lost the fight to just import that
 	x := float64(1+v) / 256.0
-	return formatFloat(0.5 + 7.5*math.Pow(x, 1./0.7)), "ms"
+	sec := 0.5 + 7.5*math.Pow(x, 1./0.7)
+	return fmt.Sprintf("%.3f", sec), "s"
 }
 
 // When unit.Type = "oscillator", its unit.Parameter["Type"] tells the type of
