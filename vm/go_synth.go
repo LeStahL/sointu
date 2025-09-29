@@ -103,7 +103,7 @@ func (s GoSynther) Synth(patch sointu.Patch, bpm int) (sointu.Synth, error) {
 		bytecode:   *bytecode,
 		stack:      make([]float32, 0, 4),
 		delaylines: make([]delayline, patch.NumDelayLines()),
-		reeeverb:   NewReeeverbCore(1., 200),
+		reeeverb:   NewReeeverbCore(),
 	}
 	ret.state.randSeed = 1
 	ret.reeeverb.initializeAll(patch.CollectReeeverbNeeds(), &ret.state)
@@ -664,10 +664,6 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 			case opReeeverb: // QM: units210
 				drygain := params[1]
 				pregain := params[2] * params[2]
-				if s.state.globalTime == 0 { // quick way to initialize a state (is there a better one?)
-					unit.state[2] = float32(s.reeeverb.loopSamples)
-					unit.state[3] = float32(s.reeeverb.loopSamples)
-				}
 				var echo *reverbVoice
 				echo, reeeverbEchoes = &reeeverbEchoes[0], reeeverbEchoes[1:]
 				stackIndex := l - channels
@@ -676,17 +672,16 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 					output := drygain * signal
 					workBuffer := echo.buffers[i]
 					posRead := uint32(unit.state[i])
-					posFb := uint32(unit.state[2+i])
 					for e := 0; e < s.reeeverb.echoNumber; e++ {
 						gain := echo.params[e].amplitude * pregain
 						pos := (posRead + echo.params[e].pos) % s.reeeverb.bufferSize
 						workBuffer[pos] += gain * signal
 					}
 					output += workBuffer[posRead]
+					posFb := (posRead + s.reeeverb.loopSamples) % s.reeeverb.bufferSize
 					workBuffer[posFb] += echo.feedbackGain * workBuffer[posRead]
 					workBuffer[posRead] = 0
 					unit.state[i] = float32((posRead + 1) % s.reeeverb.bufferSize)
-					unit.state[2+i] = float32((posFb + 1) % s.reeeverb.bufferSize)
 					stack[stackIndex] = output
 					stackIndex++
 				}

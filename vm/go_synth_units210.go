@@ -17,11 +17,6 @@ type (
 		sampleRate     float32
 	}
 
-	ReverbNeeds struct {
-		decayParam      int
-		numberOfBuffers int
-	}
-
 	reverbVoice struct {
 		// qm: modeled after https://amalgamatedsignals.com/nepenthe
 		//	   might move elsewhere, but I didn't figure a better place
@@ -100,9 +95,11 @@ func applyFloatLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amou
 		amountAnd*valueAnd + amountOr*valueOr + amountXor*valueXor
 }
 
-func NewReeeverbCore(loopSeconds float32, numberEchoes int) reverbCore {
+func NewReeeverbCore() reverbCore {
 	// QM: didn't find an easy accessible source for the constant (sointu always seems to use 44100)
+	const loopSeconds = 1.
 	const sampleRate = 44100.
+	const numberEchoes = 200
 	// right now, we are using the delayline-buffers for this as well, maybe we should use our own buffers.
 	// but as we do use them, the our "work data" have to fit twice in there (original + feedback)
 	// WIP: just getting rid of the coupling to the delaylines
