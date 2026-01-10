@@ -662,8 +662,8 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 			// Feeelter is WIP for the future :)
 			//break
 			case opReeeverb: // QM: units210
-				drygain := params[1]
-				pregain := params[2] * params[2]
+				drygain := params[0]
+				pregain := params[1] * params[1]
 				var echo *reverbVoice
 				echo, reeeverbEchoes = &reeeverbEchoes[0], reeeverbEchoes[1:]
 				stackIndex := l - channels
@@ -672,7 +672,7 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 					output := drygain * signal
 					workBuffer := echo.buffers[i]
 					posRead := uint32(unit.state[i])
-					for e := 0; e < s.reeeverb.echoNumber; e++ {
+					for e := 0; e < s.reeeverb.echoesSetSize; e++ {
 						gain := echo.params[e].amplitude * pregain
 						pos := (posRead + echo.params[e].pos) % s.reeeverb.bufferSize
 						workBuffer[pos] += gain * signal

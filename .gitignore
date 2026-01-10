@@ -32,6 +32,7 @@ actual_output/
 **/__debug_bin
 *.exe
 *.dll
+*.7z
 
 **/testdata/fuzz/
 .DS_Store

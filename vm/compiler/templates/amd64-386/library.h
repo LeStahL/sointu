@@ -36,6 +36,19 @@ typedef struct SampleOffset {
     unsigned short LoopLength;
 } SampleOffset;
 
+typedef struct ReverbSampling {
+    unsigned int Pos;
+    unsigned int Amp;
+} ReverbVoiceSampling;
+
+typedef struct ReverbWorkspace {
+    struct ReverbSampling Params[210]
+    float BufferL[131072];
+    float BufferR[131072];
+    float NormGain;
+    float FbGain;
+}
+
 typedef struct Synth {
     struct SynthWorkspace SynthWrk;
     struct DelayWorkspace DelayWrks[128]; // let's keep this as 64 for now, so the delays take 16 meg. If that's too little or too much, we can change this in future.
@@ -47,6 +60,7 @@ typedef struct Synth {
     unsigned char Operands[32 * 64 * 8];
     unsigned int Polyphony;
     unsigned int NumVoices;
+    struct ReverbWorkspace ReverbWrks[128];
 } Synth;
 #pragma pack(pop)
 

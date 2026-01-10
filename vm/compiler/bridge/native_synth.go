@@ -28,6 +28,9 @@ func Synth(patch sointu.Patch, bpm int) (*NativeSynth, error) {
 	if n := patch.NumDelayLines(); n > 128 {
 		return nil, fmt.Errorf("native bridge has currently a hard limit of 128 delaylines; patch uses %v", n)
 	}
+	if n := len(patch.CollectReeeverbNeeds()) / 2; n > 24 {
+		return nil, fmt.Errorf("native bridge has currently a hard limit of 24 reverb voices; patch uses %v", n)
+	}
 	comPatch, err := vm.NewBytecode(patch, vm.AllFeatures{}, bpm)
 	if err != nil {
 		return nil, fmt.Errorf("error compiling patch: %v", err)
@@ -62,6 +65,9 @@ func Synth(patch sointu.Patch, bpm int) (*NativeSynth, error) {
 	s.NumVoices = C.uint(comPatch.NumVoices)
 	s.Polyphony = C.uint(comPatch.PolyphonyBitmask)
 	s.RandSeed = 1
+	// units210: Reeeverb has s.ReverbWrks, must get initialized here (other than seemingly s.DelayWrks...)
+	// s.ReverbWrks ...
+	//
 	return (*NativeSynth)(s), nil
 }
 

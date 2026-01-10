@@ -10,7 +10,7 @@ import (
 type (
 	reverbCore struct {
 		echoes         []reverbVoice
-		echoNumber     int
+		echoesSetSize  int
 		loopSamples    uint32
 		bufferSize     uint32
 		spacingSamples uint32
@@ -97,16 +97,18 @@ func applyFloatLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amou
 
 func NewReeeverbCore() reverbCore {
 	// QM: didn't find an easy accessible source for the (seemingly) constant sample rate
-	const sampleRate = 44100.
-	const numberEchoes = 200
-	const loopSeconds = 1.
-	// currently, the bufferSize is not limited (and larger than 65536), but if we need this:
+	const sampleRate float32 = 44100.
+	// we fix these for now, but make them adjustable for experimentation later:
+	var numberEchoes int = 210
+	var loopSeconds float32 = 1.0
+	// currently, the bufferSize is not limited, but if we need this:
 	// maxLoopSeconds := float32(maxBufferSize/2) / sampleRate
+	// for reference: loopSeconds = 1 -> bufferSize = 88200 = 2 * 210 * 210 :)
 	spacingSamples := uint32(sampleRate * loopSeconds / float32(numberEchoes))
 	loopSamples := spacingSamples * uint32(numberEchoes)
 	return reverbCore{
 		echoes:         make([]reverbVoice, 0),
-		echoNumber:     numberEchoes,
+		echoesSetSize:  numberEchoes,
 		loopSamples:    loopSamples,
 		bufferSize:     2 * loopSamples,
 		spacingSamples: spacingSamples,
@@ -117,7 +119,7 @@ func NewReeeverbCore() reverbCore {
 func (n *reverbCore) initializeAll(interlacedNeeds []int, state *synthState) {
 	// Note: as this is called directly after defining the seed at startup,
 	// these turn out always the same. That's nice for development,
-	// but might become changeable later on (like echoNumber / bufferSize)
+	// but might become changeable later on (like echoesSetSize / bufferSize)
 	n.echoes = make([]reverbVoice, len(interlacedNeeds)/2)
 	for i := 0; i < len(n.echoes); i++ {
 		n.initializeNew(i, interlacedNeeds[2*i], interlacedNeeds[2*i+1], state)
@@ -130,7 +132,7 @@ func (n *reverbCore) initializeNew(index int, decayParam int, nBuffers int, stat
 	echo.params = make([]struct {
 		pos       uint32
 		amplitude float32
-	}, n.echoNumber)
+	}, n.echoesSetSize)
 	echo.buffers = make([][]float32, nBuffers)
 	n.initializeEchoes(index, state)
 }
@@ -150,7 +152,7 @@ func (n *reverbCore) initializeEchoes(index int, state *synthState) {
 		params.pos = uint32(samplePos)
 		echo.updateDecayAmplitude(p, decayLength)
 	}
-	echo.normalizationGain = 90.0 / float32(n.echoNumber)
+	echo.normalizationGain = 90.0 / float32(n.echoesSetSize)
 	echo.feedbackGain = decayShape(n.loopSamples, decayLength)
 	for b := range echo.buffers {
 		echo.buffers[b] = make([]float32, n.bufferSize)

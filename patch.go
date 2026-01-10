@@ -232,9 +232,11 @@ var UnitTypes = map[string]([]UnitParameter){
 	//},
 	"reeeverb": {
 		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: true, DisplayFunc: reeeverbTimeDisplay},
 		{Name: "dry", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		{Name: "pregain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: false, DisplayFunc: reeeverbTimeDisplay},
+		// <-- "decay" is on CanModulate: false, because no idea how to allow re-computation of the echoes in ASM
+		//		when it is changed, call "go generate" (and if not last param, change the params index in go_synth.go)
 	},
 }
 

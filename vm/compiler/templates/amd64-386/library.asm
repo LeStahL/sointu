@@ -1,16 +1,17 @@
 {{template "structs.asm" .}}
 
 struc su_synth
-    .synth_wrk  resb    su_synthworkspace.size
-    .delay_wrks resb    su_delayline_wrk.size * 128
-    .delaytimes resw    768
-    .sampleoffs resb    su_sample_offset.size * 256
-    .randseed   resd    1
-    .globaltime resd    1
-    .opcodes    resb    32 * 64
-    .operands   resb    32 * 64 * 8
-    .polyphony  resd    1
-    .numvoices  resd    1
+    .synth_wrk   resb    su_synthworkspace.size
+    .delay_wrks  resb    su_delayline_wrk.size * 128
+    .delaytimes  resw    768
+    .sampleoffs  resb    su_sample_offset.size * 256
+    .randseed    resd    1
+    .globaltime  resd    1
+    .opcodes     resb    32 * 64
+    .operands    resb    32 * 64 * 8
+    .polyphony   resd    1
+    .numvoices   resd    1
+    .reverb_wrks resb    su_reverb_wrk.size * 24
 endstruc
 
 {{.ExportFunc "su_render" "SynthStateParam" "BufferPtrParam" "SamplesParam" "TimeParam"}}
