@@ -1,0 +1,75 @@
+numvoices: 1
+units:
+    - id: 1546
+      parameters: {}
+      comment: Main oscillators
+    - type: oscillator
+      id: 2
+      parameters: {color: 128, detune: 50, gain: 64, phase: 0, shape: 64, stereo: 0, transpose: 64, type: 1, unison: 1}
+    - type: oscillator
+      id: 1526
+      parameters: {color: 128, detune: 100, gain: 64, phase: 32, shape: 64, stereo: 0, transpose: 52, type: 0, unison: 3}
+    - type: addp
+      id: 1527
+      parameters: {stereo: 0}
+    - type: push
+      id: 1528
+      parameters: {stereo: 0}
+    - id: 1529
+      parameters: {}
+      comment: Bass
+    - type: filter
+      id: 1530
+      parameters: {bandpass: -1, frequency: 64, highpass: 0, lowpass: 1, resonance: 41, stereo: 0}
+    - type: filter
+      id: 1531
+      parameters: {bandpass: -1, frequency: 16, highpass: -1, lowpass: 1, resonance: 64, stereo: 0}
+    - type: xch
+      id: 1532
+      parameters: {stereo: 0}
+    - id: 1533
+      parameters: {}
+      comment: Crunch
+    - type: filter
+      id: 1535
+      parameters: {bandpass: 1, frequency: 64, highpass: 0, lowpass: 1, resonance: 47, stereo: 0}
+    - type: distort
+      id: 1536
+      parameters: {drive: 120, stereo: 0}
+    - type: distort
+      id: 1538
+      parameters: {drive: 120, stereo: 0}
+    - type: filter
+      id: 1539
+      parameters: {bandpass: 1, frequency: 81, highpass: 0, lowpass: 1, resonance: 128, stereo: 0}
+    - type: push
+      id: 1540
+      parameters: {stereo: 1}
+    - type: delay
+      id: 1541
+      parameters: {damp: 0, dry: 0, feedback: 0, notetracking: 0, pregain: 128, stereo: 0}
+      varargs: [1024]
+    - type: xch
+      id: 1542
+      parameters: {stereo: 0}
+    - type: addp
+      id: 1543
+      parameters: {stereo: 1}
+    - id: 1547
+      parameters: {}
+      comment: Main envelope
+    - type: envelope
+      id: 1
+      parameters: {attack: 37, decay: 64, gain: 15, release: 68, stereo: 1, sustain: 93}
+    - type: mulp
+      id: 3
+      parameters: {stereo: 1}
+    - type: compressor
+      id: 1698
+      parameters: {attack: 54, invgain: 44, ratio: 96, release: 47, stereo: 1, threshold: 52}
+    - type: mulp
+      id: 1699
+      parameters: {stereo: 1}
+    - type: outaux
+      id: 6
+      parameters: {auxgain: 0, outgain: 14, stereo: 1}

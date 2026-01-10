@@ -245,7 +245,7 @@ func read4klangUnit(r io.Reader, version int) ([]Unit, error) {
 	}
 }
 
-func read4klangENV(vals [15]byte, version int) []Unit {
+func read4klangENV(vals [15]byte, _ int) []Unit {
 	return []Unit{{
 		Type: "envelope",
 		Parameters: map[string]int{
@@ -273,7 +273,7 @@ func read4klangVCO(vals [15]byte, version int) []Unit {
 	color, v = int(v[0]), v[1:]
 	shape, v = int(v[0]), v[1:]
 	gain, v = int(v[0]), v[1:]
-	flags, v = int(v[0]), v[1:]
+	flags, _ = int(v[0]), v[1:]
 	if flags&0x10 == 0x10 {
 		lfo = 1
 	}
@@ -318,9 +318,9 @@ func read4klangVCO(vals [15]byte, version int) []Unit {
 	}}
 }
 
-func read4klangVCF(vals [15]byte, version int) []Unit {
+func read4klangVCF(vals [15]byte, _ int) []Unit {
 	flags := vals[2]
-	var stereo, lowpass, bandpass, highpass, neghighpass int
+	var stereo, lowpass, bandpass, highpass int
 	if flags&0x01 == 0x01 {
 		lowpass = 1
 	}
@@ -332,7 +332,7 @@ func read4klangVCF(vals [15]byte, version int) []Unit {
 	}
 	if flags&0x08 == 0x08 {
 		lowpass = 1
-		neghighpass = 1
+		highpass = -1
 	}
 	if flags&0x10 == 0x10 {
 		stereo = 1
@@ -340,26 +340,24 @@ func read4klangVCF(vals [15]byte, version int) []Unit {
 	return []Unit{{
 		Type: "filter",
 		Parameters: map[string]int{
-			"stereo":      stereo,
-			"frequency":   int(vals[0]),
-			"resonance":   int(vals[1]),
-			"lowpass":     lowpass,
-			"bandpass":    bandpass,
-			"highpass":    highpass,
-			"negbandpass": 0,
-			"neghighpass": neghighpass,
+			"stereo":    stereo,
+			"frequency": int(vals[0]),
+			"resonance": int(vals[1]),
+			"lowpass":   lowpass,
+			"bandpass":  bandpass,
+			"highpass":  highpass,
 		}},
 	}
 }
 
-func read4klangDST(vals [15]byte, version int) []Unit {
+func read4klangDST(vals [15]byte, _ int) []Unit {
 	return []Unit{
 		{Type: "distort", Parameters: map[string]int{"drive": int(vals[0]), "stereo": int(vals[2])}},
 		{Type: "hold", Parameters: map[string]int{"holdfreq": int(vals[1]), "stereo": int(vals[2])}},
 	}
 }
 
-func read4klangDLL(vals [15]byte, version int) []Unit {
+func read4klangDLL(vals [15]byte, _ int) []Unit {
 	var delaytimes []int
 	var notetracking int
 	if vals[11] > 0 {
@@ -400,7 +398,7 @@ func read4klangDLL(vals [15]byte, version int) []Unit {
 	}}
 }
 
-func read4klangFOP(vals [15]byte, version int) []Unit {
+func read4klangFOP(vals [15]byte, _ int) []Unit {
 	var t string
 	var stereo int
 	switch vals[0] {
@@ -434,7 +432,7 @@ func read4klangFOP(vals [15]byte, version int) []Unit {
 	}}
 }
 
-func read4klangFST(vals [15]byte, version int) []Unit {
+func read4klangFST(vals [15]byte, _ int) []Unit {
 	sendpop := 0
 	if vals[1]&0x40 == 0x40 {
 		sendpop = 1
@@ -484,7 +482,7 @@ func fix4klangTargets(instrIndex int, instr Instrument, m _4klangTargetMap) {
 	}
 }
 
-func read4klangPAN(vals [15]byte, version int) []Unit {
+func read4klangPAN(vals [15]byte, _ int) []Unit {
 	return []Unit{{
 		Type: "pan",
 		Parameters: map[string]int{
@@ -493,7 +491,7 @@ func read4klangPAN(vals [15]byte, version int) []Unit {
 		}}}
 }
 
-func read4klangOUT(vals [15]byte, version int) []Unit {
+func read4klangOUT(vals [15]byte, _ int) []Unit {
 	return []Unit{{
 		Type: "outaux",
 		Parameters: map[string]int{
@@ -503,7 +501,7 @@ func read4klangOUT(vals [15]byte, version int) []Unit {
 	}}
 }
 
-func read4klangACC(vals [15]byte, version int) []Unit {
+func read4klangACC(vals [15]byte, _ int) []Unit {
 	c := 0
 	if vals[0] != 0 {
 		c = 2
@@ -514,7 +512,7 @@ func read4klangACC(vals [15]byte, version int) []Unit {
 	}}
 }
 
-func read4klangFLD(vals [15]byte, version int) []Unit {
+func read4klangFLD(vals [15]byte, _ int) []Unit {
 	return []Unit{{
 		Type:       "loadval",
 		Parameters: map[string]int{"stereo": 0, "value": int(vals[0])},

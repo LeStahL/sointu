@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"gioui.org/app"
@@ -20,6 +22,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/x/explorer"
+	"github.com/vsariola/sointu"
 	"github.com/vsariola/sointu/tracker"
 )
 
@@ -28,34 +31,38 @@ var canQuit = true // set to false in init() if plugin tag is enabled
 type (
 	Tracker struct {
 		Theme                 *Theme
-		OctaveNumberInput     *NumberInput
-		InstrumentVoices      *NumberInput
-		TopHorizontalSplit    *Split
-		BottomHorizontalSplit *Split
-		VerticalSplit         *Split
+		OctaveNumberInput     *NumericUpDownState
+		InstrumentVoices      *NumericUpDownState
+		TopHorizontalSplit    *SplitState
+		BottomHorizontalSplit *SplitState
+		VerticalSplit         *SplitState
 		KeyNoteMap            Keyboard[key.Name]
-		PopupAlert            *PopupAlert
+		PopupAlert            *AlertsState
 		Zoom                  int
 
-		SaveChangesDialog *Dialog
-		WaveTypeDialog    *Dialog
+		DialogState *DialogState
 
-		ModalDialog      layout.Widget
-		InstrumentEditor *InstrumentEditor
-		OrderEditor      *OrderEditor
-		TrackEditor      *NoteEditor
-		Explorer         *explorer.Explorer
-		Exploring        bool
-		SongPanel        *SongPanel
+		ModalDialog layout.Widget
+		PatchPanel  *PatchPanel
+		OrderEditor *OrderEditor
+		TrackEditor *NoteEditor
+		Explorer    *explorer.Explorer
+		Exploring   bool
+		SongPanel   *SongPanel
 
 		filePathString tracker.String
 		noteEvents     []tracker.NoteEvent
 
-		execChan    chan func()
 		preferences Preferences
 
 		*tracker.Model
+
+		surfaceHeight int
 	}
+
+	ShowManual Tracker
+	AskHelp    Tracker
+	ReportBug  Tracker
 
 	C = layout.Context
 	D = layout.Dimensions
@@ -71,19 +78,17 @@ var ZoomFactors = []float32{.25, 1. / 3, .5, 2. / 3, .75, .8, 1, 1.1, 1.25, 1.5,
 
 func NewTracker(model *tracker.Model) *Tracker {
 	t := &Tracker{
-		OctaveNumberInput: NewNumberInput(model.Octave()),
-		InstrumentVoices:  NewNumberInput(model.InstrumentVoices()),
+		OctaveNumberInput: NewNumericUpDownState(),
+		InstrumentVoices:  NewNumericUpDownState(),
 
-		TopHorizontalSplit:    &Split{Ratio: -.5, MinSize1: 180, MinSize2: 180},
-		BottomHorizontalSplit: &Split{Ratio: -.6, MinSize1: 180, MinSize2: 180},
-		VerticalSplit:         &Split{Axis: layout.Vertical, MinSize1: 180, MinSize2: 180},
+		TopHorizontalSplit:    &SplitState{Ratio: -.5},
+		BottomHorizontalSplit: &SplitState{Ratio: -.6},
+		VerticalSplit:         &SplitState{Axis: layout.Vertical},
 
-		SaveChangesDialog: NewDialog(model.SaveSong(), model.DiscardSong(), model.Cancel()),
-		WaveTypeDialog:    NewDialog(model.ExportInt16(), model.ExportFloat(), model.Cancel()),
-		InstrumentEditor:  NewInstrumentEditor(model),
-		OrderEditor:       NewOrderEditor(model),
-		TrackEditor:       NewNoteEditor(model),
-		SongPanel:         NewSongPanel(model),
+		DialogState: new(DialogState),
+		PatchPanel:  NewPatchPanel(model),
+		OrderEditor: NewOrderEditor(model),
+		TrackEditor: NewNoteEditor(model),
 
 		Zoom: 6,
 
@@ -91,8 +96,9 @@ func NewTracker(model *tracker.Model) *Tracker {
 
 		filePathString: model.FilePath(),
 	}
+	t.SongPanel = NewSongPanel(t)
 	t.KeyNoteMap = MakeKeyboard[key.Name](model.Broker())
-	t.PopupAlert = NewPopupAlert(model.Alerts())
+	t.PopupAlert = NewAlertsState()
 	var warn error
 	if t.Theme, warn = NewTheme(); warn != nil {
 		model.Alerts().AddAlert(tracker.Alert{
@@ -109,15 +115,15 @@ func NewTracker(model *tracker.Model) *Tracker {
 			Duration: 10 * time.Second,
 		})
 	}
-	t.TrackEditor.scrollTable.Focus()
 	return t
 }
 
 func (t *Tracker) Main() {
-	t.InstrumentEditor.Focus()
 	recoveryTicker := time.NewTicker(time.Second * 30)
 	var ops op.Ops
 	titlePath := ""
+	globals := make(map[string]any, 1)
+	globals["Tracker"] = t
 	for !t.Quitted() {
 		w := t.newWindow()
 		w.Option(app.Title(titleFromPath(titlePath)))
@@ -170,7 +176,8 @@ func (t *Tracker) Main() {
 						w.Option(app.Title(titleFromPath(titlePath)))
 					}
 					gtx := app.NewContext(&ops, e)
-					t.Layout(gtx, w)
+					gtx.Values = globals
+					t.Layout(gtx)
 					e.Frame(gtx.Ops)
 					if t.Quitted() {
 						w.Perform(system.ActionClose)
@@ -185,6 +192,14 @@ func (t *Tracker) Main() {
 	recoveryTicker.Stop()
 	t.SaveRecovery()
 	close(t.Broker().FinishedGUI)
+}
+
+func TrackerFromContext(gtx C) *Tracker {
+	t, ok := gtx.Values["Tracker"]
+	if !ok {
+		panic("Tracker not found in context values")
+	}
+	return t.(*Tracker)
 }
 
 func (t *Tracker) newWindow() *app.Window {
@@ -203,7 +218,7 @@ func titleFromPath(path string) string {
 	return fmt.Sprintf("Sointu Tracker - %s", path)
 }
 
-func (t *Tracker) Layout(gtx layout.Context, w *app.Window) {
+func (t *Tracker) Layout(gtx layout.Context) {
 	zoomFactor := ZoomFactors[t.Zoom]
 	gtx.Metric.PxPerDp *= zoomFactor
 	gtx.Metric.PxPerSp *= zoomFactor
@@ -211,14 +226,16 @@ func (t *Tracker) Layout(gtx layout.Context, w *app.Window) {
 	paint.Fill(gtx.Ops, t.Theme.Material.Bg)
 	event.Op(gtx.Ops, t) // area for capturing scroll events
 
-	if t.InstrumentEditor.enlargeBtn.Bool.Value() {
+	if t.InstrEnlarged().Value() {
 		t.layoutTop(gtx)
 	} else {
 		t.VerticalSplit.Layout(gtx,
+			&t.Theme.Split,
 			t.layoutTop,
 			t.layoutBottom)
 	}
-	t.PopupAlert.Layout(gtx, t.Theme)
+	alerts := Alerts(t.Alerts(), t.Theme, t.PopupAlert)
+	alerts.Layout(gtx)
 	t.showDialog(gtx)
 	// this is the top level input handler for the whole app
 	// it handles all the global key events and clipboard events
@@ -227,7 +244,7 @@ func (t *Tracker) Layout(gtx layout.Context, w *app.Window) {
 	for {
 		ev, ok := gtx.Event(
 			key.Filter{Name: "", Optional: key.ModAlt | key.ModCommand | key.ModShift | key.ModShortcut | key.ModSuper},
-			key.Filter{Name: key.NameTab, Optional: key.ModShift},
+			key.Filter{Name: key.NameTab, Optional: key.ModShift | key.ModShortcut},
 			transfer.TargetFilter{Target: t, Type: "application/text"},
 			pointer.Filter{Target: t, Kinds: pointer.Scroll, ScrollY: pointer.ScrollRange{Min: -1, Max: 1}},
 		)
@@ -267,15 +284,19 @@ func (t *Tracker) showDialog(gtx C) {
 	}
 	switch t.Dialog() {
 	case tracker.NewSongChanges, tracker.OpenSongChanges, tracker.QuitChanges:
-		dstyle := ConfirmDialog(gtx, t.Theme, t.SaveChangesDialog, "Save changes to song?", "Your changes will be lost if you don't save them.")
-		dstyle.OkStyle.Text = "Save"
-		dstyle.AltStyle.Text = "Don't save"
-		dstyle.Layout(gtx)
+		dialog := MakeDialog(t.Theme, t.DialogState, "Save changes to song?", "Your changes will be lost if you don't save them.",
+			DialogBtn("Save", t.SaveSong()),
+			DialogBtn("Don't save", t.DiscardSong()),
+			DialogBtn("Cancel", t.Cancel()),
+		)
+		dialog.Layout(gtx)
 	case tracker.Export:
-		dstyle := ConfirmDialog(gtx, t.Theme, t.WaveTypeDialog, "", "Export .wav in int16 or float32 sample format?")
-		dstyle.OkStyle.Text = "Int16"
-		dstyle.AltStyle.Text = "Float32"
-		dstyle.Layout(gtx)
+		dialog := MakeDialog(t.Theme, t.DialogState, "Export format", "Choose the sample format for the exported .wav file.",
+			DialogBtn("Int16", t.ExportInt16()),
+			DialogBtn("Float32", t.ExportFloat()),
+			DialogBtn("Cancel", t.Cancel()),
+		)
+		dialog.Layout(gtx)
 	case tracker.OpenSongOpenExplorer:
 		t.explorerChooseFile(t.ReadSong, ".yml", ".json")
 	case tracker.NewSongSaveExplorer, tracker.OpenSongSaveExplorer, tracker.QuitSaveExplorer, tracker.SaveAsExplorer:
@@ -292,6 +313,23 @@ func (t *Tracker) showDialog(gtx C) {
 		t.explorerCreateFile(func(wc io.WriteCloser) {
 			t.WriteWav(wc, t.Dialog() == tracker.ExportInt16Explorer)
 		}, filename)
+	case tracker.License:
+		dialog := MakeDialog(t.Theme, t.DialogState, "License", sointu.License,
+			DialogBtn("Close", t.Cancel()),
+		)
+		dialog.Layout(gtx)
+	case tracker.DeleteUserPresetDialog:
+		dialog := MakeDialog(t.Theme, t.DialogState, "Delete user preset?", "Are you sure you want to delete the selected user preset?\nThis action cannot be undone.",
+			DialogBtn("Delete", t.DeleteUserPreset()),
+			DialogBtn("Cancel", t.Cancel()),
+		)
+		dialog.Layout(gtx)
+	case tracker.OverwriteUserPresetDialog:
+		dialog := MakeDialog(t.Theme, t.DialogState, "Overwrite user preset?", "Are you sure you want to overwrite the existing user preset with the same name?",
+			DialogBtn("Save", t.OverwriteUserPreset()),
+			DialogBtn("Cancel", t.Cancel()),
+		)
+		dialog.Layout(gtx)
 	}
 }
 
@@ -305,6 +343,9 @@ func (t *Tracker) explorerChooseFile(success func(io.ReadCloser), extensions ...
 				success(file)
 			} else {
 				t.Cancel().Do()
+				if err != explorer.ErrUserDecline {
+					t.Alerts().Add(err.Error(), tracker.Error)
+				}
 			}
 		}}
 	}()
@@ -320,6 +361,9 @@ func (t *Tracker) explorerCreateFile(success func(io.WriteCloser), filename stri
 				success(file)
 			} else {
 				t.Cancel().Do()
+				if err != explorer.ErrUserDecline {
+					t.Alerts().Add(err.Error(), tracker.Error)
+				}
 			}
 		}}
 	}()
@@ -327,22 +371,54 @@ func (t *Tracker) explorerCreateFile(success func(io.WriteCloser), filename stri
 
 func (t *Tracker) layoutBottom(gtx layout.Context) layout.Dimensions {
 	return t.BottomHorizontalSplit.Layout(gtx,
-		func(gtx C) D {
-			return t.OrderEditor.Layout(gtx, t)
-		},
-		func(gtx C) D {
-			return t.TrackEditor.Layout(gtx, t)
-		},
+		&t.Theme.Split,
+		t.OrderEditor.Layout,
+		t.TrackEditor.Layout,
 	)
 }
 
 func (t *Tracker) layoutTop(gtx layout.Context) layout.Dimensions {
 	return t.TopHorizontalSplit.Layout(gtx,
-		func(gtx C) D {
-			return t.SongPanel.Layout(gtx, t)
-		},
-		func(gtx C) D {
-			return t.InstrumentEditor.Layout(gtx, t)
-		},
+		&t.Theme.Split,
+		t.SongPanel.Layout,
+		t.PatchPanel.Layout,
 	)
+}
+
+func (t *Tracker) ShowManual() tracker.Action { return tracker.MakeEnabledAction((*ShowManual)(t)) }
+func (t *ShowManual) Do()                     { (*Tracker)(t).openUrl("https://github.com/vsariola/sointu/wiki") }
+
+func (t *Tracker) AskHelp() tracker.Action { return tracker.MakeEnabledAction((*AskHelp)(t)) }
+func (t *AskHelp) Do() {
+	(*Tracker)(t).openUrl("https://github.com/vsariola/sointu/discussions/categories/help-needed")
+}
+
+func (t *Tracker) ReportBug() tracker.Action { return tracker.MakeEnabledAction((*ReportBug)(t)) }
+func (t *ReportBug) Do()                     { (*Tracker)(t).openUrl("https://github.com/vsariola/sointu/issues") }
+
+func (t *Tracker) openUrl(url string) {
+	var err error
+	// following https://gist.github.com/hyg/9c4afcd91fe24316cbf0
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform for opening urls %s", runtime.GOOS)
+	}
+	if err != nil {
+		t.Alerts().Add(err.Error(), tracker.Error)
+	}
+}
+
+func (t *Tracker) Tags(curLevel int, yield TagYieldFunc) bool {
+	ret := t.PatchPanel.Tags(curLevel+1, yield)
+	if !t.InstrEnlarged().Value() {
+		ret = ret && t.OrderEditor.Tags(curLevel+1, yield) &&
+			t.TrackEditor.Tags(curLevel+1, yield)
+	}
+	return ret
 }

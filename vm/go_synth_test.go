@@ -16,7 +16,7 @@ import (
 
 	"github.com/vsariola/sointu"
 	"github.com/vsariola/sointu/vm"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 const errorThreshold = 1e-2
@@ -97,7 +97,7 @@ var defaultUnits = map[string]sointu.Unit{
 	"clip":       {Type: "clip", Parameters: map[string]int{"stereo": 0}},
 	"hold":       {Type: "hold", Parameters: map[string]int{"stereo": 0, "holdfreq": 64}},
 	"distort":    {Type: "distort", Parameters: map[string]int{"stereo": 0, "drive": 64}},
-	"filter":     {Type: "filter", Parameters: map[string]int{"stereo": 0, "frequency": 64, "resonance": 64, "lowpass": 1, "bandpass": 0, "highpass": 0, "negbandpass": 0, "neghighpass": 0}},
+	"filter":     {Type: "filter", Parameters: map[string]int{"stereo": 0, "frequency": 64, "resonance": 64, "lowpass": 1, "bandpass": 0, "highpass": 0}},
 	"out":        {Type: "out", Parameters: map[string]int{"stereo": 1, "gain": 64}},
 	"outaux":     {Type: "outaux", Parameters: map[string]int{"stereo": 1, "outgain": 64, "auxgain": 64}},
 	"aux":        {Type: "aux", Parameters: map[string]int{"stereo": 1, "gain": 64, "channel": 2}},
@@ -109,6 +109,7 @@ var defaultUnits = map[string]sointu.Unit{
 	"compressor": {Type: "compressor", Parameters: map[string]int{"stereo": 0, "attack": 64, "release": 64, "invgain": 64, "threshold": 64, "ratio": 64}},
 	"send":       {Type: "send", Parameters: map[string]int{"stereo": 0, "amount": 128, "voice": 0, "unit": 0, "port": 0, "sendpop": 1}},
 	"sync":       {Type: "sync", Parameters: map[string]int{}},
+	"belleq":     {Type: "belleq", Parameters: map[string]int{"stereo": 0, "freq": 64, "bandwidth": 64, "gain": 96}},
 }
 
 var defaultInstrument = sointu.Instrument{
@@ -197,6 +198,7 @@ func TestStackUnderflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bridge compile error: %v", err)
 	}
+	defer synth.Close()
 	buffer := make(sointu.AudioBuffer, 1)
 	err = buffer.Fill(synth)
 	if err == nil {
@@ -213,6 +215,7 @@ func TestStackBalancing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bridge compile error: %v", err)
 	}
+	defer synth.Close()
 	buffer := make(sointu.AudioBuffer, 1)
 	err = buffer.Fill(synth)
 	if err == nil {

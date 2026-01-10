@@ -1,15 +1,17 @@
 package gioui
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"gioui.org/io/clipboard"
+	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"github.com/vsariola/sointu/tracker"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type (
@@ -30,7 +32,9 @@ var defaultKeyBindings []byte
 
 func init() {
 	var keyBindings, userKeybindings []KeyBinding
-	if err := yaml.UnmarshalStrict(defaultKeyBindings, &keyBindings); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(defaultKeyBindings))
+	dec.KnownFields(true)
+	if err := dec.Decode(&keyBindings); err != nil {
 		panic(fmt.Errorf("failed to unmarshal default keybindings: %w", err))
 	}
 	if err := ReadCustomConfig("keybindings.yml", &userKeybindings); err == nil {
@@ -185,6 +189,14 @@ func (t *Tracker) KeyEvent(e key.Event, gtx C) {
 		t.SplitTrack().Do()
 	case "SplitInstrument":
 		t.SplitInstrument().Do()
+	case "ShowManual":
+		t.ShowManual().Do()
+	case "AskHelp":
+		t.AskHelp().Do()
+	case "ReportBug":
+		t.ReportBug().Do()
+	case "ShowLicense":
+		t.ShowLicense().Do()
 	// Booleans
 	case "PanicToggle":
 		t.Panic().Toggle()
@@ -200,8 +212,6 @@ func (t *Tracker) KeyEvent(e key.Event, gtx C) {
 		t.InstrEnlarged().Toggle()
 	case "LinkInstrTrackToggle":
 		t.LinkInstrTrack().Toggle()
-	case "CommentExpandedToggle":
-		t.CommentExpanded().Toggle()
 	case "FollowToggle":
 		t.Follow().Toggle()
 	case "UnitDisabledToggle":
@@ -251,49 +261,36 @@ func (t *Tracker) KeyEvent(e key.Event, gtx C) {
 	case "Paste":
 		gtx.Execute(clipboard.ReadCmd{Tag: t})
 	case "OrderEditorFocus":
-		t.OrderEditor.scrollTable.Focus()
+		t.InstrEnlarged().SetValue(false)
+		gtx.Execute(key.FocusCmd{Tag: t.OrderEditor.scrollTable})
 	case "TrackEditorFocus":
-		t.TrackEditor.scrollTable.Focus()
-	case "InstrumentEditorFocus":
-		t.InstrumentEditor.Focus()
+		t.InstrEnlarged().SetValue(false)
+		gtx.Execute(key.FocusCmd{Tag: t.TrackEditor.scrollTable})
+	case "InstrumentListFocus":
+		gtx.Execute(key.FocusCmd{Tag: t.PatchPanel.instrList.instrumentDragList})
+	case "UnitListFocus":
+		var tag event.Tag
+		t.PatchPanel.BottomTags(0, func(level int, t event.Tag) bool {
+			tag = t
+			return false
+		})
+		gtx.Execute(key.FocusCmd{Tag: tag})
 	case "FocusPrev":
-		switch {
-		case t.OrderEditor.scrollTable.Focused(gtx):
-			t.InstrumentEditor.unitEditor.sliderList.Focus()
-		case t.TrackEditor.scrollTable.Focused(gtx):
-			t.OrderEditor.scrollTable.Focus()
-		case t.InstrumentEditor.Focused(gtx):
-			if t.InstrumentEditor.enlargeBtn.Bool.Value() {
-				t.InstrumentEditor.unitEditor.sliderList.Focus()
-			} else {
-				t.TrackEditor.scrollTable.Focus()
-			}
-		default:
-			t.InstrumentEditor.Focus()
-		}
+		t.FocusPrev(gtx, false)
+	case "FocusPrevInto":
+		t.FocusPrev(gtx, true)
 	case "FocusNext":
-		switch {
-		case t.OrderEditor.scrollTable.Focused(gtx):
-			t.TrackEditor.scrollTable.Focus()
-		case t.TrackEditor.scrollTable.Focused(gtx):
-			t.InstrumentEditor.Focus()
-		case t.InstrumentEditor.Focused(gtx):
-			t.InstrumentEditor.unitEditor.sliderList.Focus()
-		default:
-			if t.InstrumentEditor.enlargeBtn.Bool.Value() {
-				t.InstrumentEditor.Focus()
-			} else {
-				t.OrderEditor.scrollTable.Focus()
-			}
-		}
+		t.FocusNext(gtx, false)
+	case "FocusNextInto":
+		t.FocusNext(gtx, true)
 	default:
-		if action[:4] == "Note" {
+		if len(action) > 4 && action[:4] == "Note" {
 			val, err := strconv.Atoi(string(action[4:]))
 			if err != nil {
 				break
 			}
-			instr := t.InstrumentEditor.instrumentDragList.TrackerList.Selected()
-			n := noteAsValue(t.OctaveNumberInput.Int.Value(), val-12)
+			instr := t.Model.Instruments().List().Selected()
+			n := noteAsValue(t.Model.Octave().Value(), val-12)
 			t.KeyNoteMap.Press(e.Name, tracker.NoteEvent{Channel: instr, Note: n})
 		}
 	}

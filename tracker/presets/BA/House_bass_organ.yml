@@ -1,0 +1,65 @@
+numvoices: 1
+units:
+    - id: 235
+      parameters: {}
+      comment: Main oscillators & envelope
+    - type: envelope
+      id: 236
+      parameters: {attack: 11, decay: 70, gain: 37, release: 64, stereo: 0, sustain: 64}
+    - type: send
+      id: 1700
+      parameters: {amount: 93, port: 4, sendpop: 0, stereo: 0, target: 236, voice: 0}
+    - type: oscillator
+      id: 237
+      parameters: {color: 100, detune: 64, gain: 100, phase: 64, shape: 64, stereo: 0, transpose: 40, type: 0, unison: 2}
+    - type: oscillator
+      id: 238
+      parameters: {color: 64, detune: 64, gain: 90, phase: 0, shape: 64, stereo: 0, transpose: 71, type: 2, unison: 0}
+    - type: addp
+      id: 239
+      parameters: {stereo: 0}
+    - type: oscillator
+      id: 1701
+      parameters: {color: 76, detune: 64, gain: 80, phase: 32, shape: 64, stereo: 0, transpose: 64, type: 2, unison: 0}
+    - type: addp
+      id: 1702
+      parameters: {stereo: 0}
+    - type: mulp
+      id: 240
+      parameters: {stereo: 0}
+    - id: 1241
+      parameters: {}
+      comment: Effects
+    - type: envelope
+      id: 242
+      parameters: {attack: 33, decay: 74, gain: 105, release: 64, stereo: 0, sustain: 46}
+    - type: send
+      id: 243
+      parameters: {amount: 104, port: 0, sendpop: 1, stereo: 0, target: 244, voice: 0}
+    - type: filter
+      id: 244
+      parameters: {bandpass: 0, frequency: 5, highpass: 0, lowpass: 1, resonance: 128, stereo: 0}
+    - type: distort
+      id: 246
+      parameters: {drive: 75, stereo: 0}
+    - type: filter
+      id: 245
+      parameters: {bandpass: -1, frequency: 11, highpass: -1, lowpass: 1, resonance: 128, stereo: 0}
+    - id: 247
+      parameters: {}
+      comment: Noise
+    - id: 253
+      parameters: {}
+      comment: Effects & output
+    - type: compressor
+      id: 255
+      parameters: {attack: 16, invgain: 128, ratio: 70, release: 26, stereo: 0, threshold: 69}
+    - type: mulp
+      id: 256
+      parameters: {stereo: 0}
+    - type: pan
+      id: 257
+      parameters: {panning: 64, stereo: 0}
+    - type: outaux
+      id: 258
+      parameters: {auxgain: 9, outgain: 32, stereo: 1}

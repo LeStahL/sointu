@@ -17,14 +17,12 @@ type (
 	// model via the playerMessages channel. The model sendTargets messages to the
 	// player via the modelMessages channel.
 	Player struct {
-		synth       sointu.Synth           // the synth used to render audio
-		song        sointu.Song            // the song being played
-		playing     bool                   // is the player playing the score or not
-		rowtime     int                    // how many samples have been played in the current row
-		songPos     sointu.SongPos         // the current position in the score
-		voiceLevels [vm.MAX_VOICES]float32 // a level that can be used to visualize the volume of each voice
-		voices      [vm.MAX_VOICES]voice
-		loop        Loop
+		synth   sointu.Synth // the synth used to render audio
+		song    sointu.Song  // the song being played
+		playing bool         // is the player playing the score or not
+		rowtime int          // how many samples have been played in the current row
+		voices  [vm.MAX_VOICES]voice
+		loop    Loop
 
 		recording Recording // the recorded MIDI events and BPM
 
@@ -32,8 +30,19 @@ type (
 		frameDeltas map[any]int64 // Player.frame (approx.)= event.Timestamp + frameDeltas[event.Source]
 		events      NoteEventList
 
+		status PlayerStatus // the part of the Player state that is communicated to the model to visualize what Player is doing
+
 		synther sointu.Synther // the synther used to create new synths
 		broker  *Broker        // the broker used to communicate with different parts of the tracker
+	}
+
+	// PlayerStatus is the part of the player state that is communicated to the
+	// model, for different visualizations of what is happening in the player.
+	PlayerStatus struct {
+		SongPos     sointu.SongPos         // the current position in the score
+		VoiceLevels [vm.MAX_VOICES]float32 // a level that can be used to visualize the volume of each voice
+		NumThreads  int
+		CPULoad     [vm.MAX_THREADS]sointu.CPULoad // current CPU load of the player, used to adjust the render rate
 	}
 
 	// PlayerProcessContext is the context given to the player when processing
@@ -41,6 +50,8 @@ type (
 	PlayerProcessContext interface {
 		BPM() (bpm float64, ok bool)
 	}
+
+	NullPlayerProcessContext struct{}
 
 	// NoteEvent describes triggering or releasing of a note. The timestamps are
 	// in frames, and relative to the clock of the event source. Different
@@ -113,8 +124,13 @@ func (p *Player) Process(buffer sointu.AudioBuffer, context PlayerProcessContext
 		if p.synth != nil {
 			rendered, timeAdvanced, err = p.synth.Render(buffer[:framesUntilEvent], timeUntilRowAdvance)
 			if err != nil {
-				p.synth = nil
-				p.send(Alert{Message: fmt.Sprintf("synth.Render: %s", err.Error()), Priority: Error, Name: "PlayerCrash"})
+				p.destroySynth()
+				p.send(Alert{Message: fmt.Sprintf("synth.Render: %s", err.Error()), Priority: Error, Name: "PlayerCrash", Duration: defaultAlertDuration})
+			}
+			// for performance, we don't check for NaN of every sample, because typically NaNs propagate
+			if rendered > 0 && (isNaN(buffer[0][0]) || isNaN(buffer[0][1]) || isInf(buffer[0][0]) || isInf(buffer[0][1])) {
+				p.destroySynth()
+				p.send(Alert{Message: "Inf or NaN detected in synth output", Priority: Error, Name: "PlayerCrash", Duration: defaultAlertDuration})
 			}
 		} else {
 			rendered = min(framesUntilEvent, timeUntilRowAdvance)
@@ -138,35 +154,45 @@ func (p *Player) Process(buffer sointu.AudioBuffer, context PlayerProcessContext
 		alpha := float32(math.Exp(-float64(rendered) / 15000))
 		for i, state := range p.voices {
 			if state.sustain {
-				p.voiceLevels[i] = (p.voiceLevels[i]-0.5)*alpha + 0.5
+				p.status.VoiceLevels[i] = (p.status.VoiceLevels[i]-0.5)*alpha + 0.5
 			} else {
-				p.voiceLevels[i] *= alpha
+				p.status.VoiceLevels[i] *= alpha
 			}
 		}
 		// when the buffer is full, return
 		if len(buffer) == 0 {
+			if p.synth != nil {
+				p.status.NumThreads = p.synth.CPULoad(p.status.CPULoad[:])
+			}
 			p.send(nil)
 			return
 		}
 	}
 	// we were not able to fill the buffer with NUM_RENDER_TRIES attempts, destroy synth and throw an error
-	p.synth = nil
+	p.destroySynth()
 	p.events = p.events[:0] // clear events, so we don't try to process them again
 	p.SendAlert("PlayerCrash", fmt.Sprintf("synth did not fill the audio buffer even with %d render calls", numRenderTries), Error)
+}
+
+func (p *Player) destroySynth() {
+	if p.synth != nil {
+		p.synth.Close()
+		p.synth = nil
+	}
 }
 
 func (p *Player) advanceRow() {
 	if p.song.Score.Length == 0 || p.song.Score.RowsPerPattern == 0 {
 		return
 	}
-	origPos := p.songPos
-	p.songPos.PatternRow++ // advance row (this is why we subtracted one in Play())
-	if p.loop.Length > 0 && p.songPos.PatternRow >= p.song.Score.RowsPerPattern && p.songPos.OrderRow == p.loop.Start+p.loop.Length-1 {
-		p.songPos.PatternRow = 0
-		p.songPos.OrderRow = p.loop.Start
+	origPos := p.status.SongPos
+	p.status.SongPos.PatternRow++ // advance row (this is why we subtracted one in Play())
+	if p.loop.Length > 0 && p.status.SongPos.PatternRow >= p.song.Score.RowsPerPattern && p.status.SongPos.OrderRow == p.loop.Start+p.loop.Length-1 {
+		p.status.SongPos.PatternRow = 0
+		p.status.SongPos.OrderRow = p.loop.Start
 	}
-	p.songPos = p.song.Score.Clamp(p.songPos)
-	if p.songPos == origPos {
+	p.status.SongPos = p.song.Score.Clamp(p.status.SongPos)
+	if p.status.SongPos == origPos {
 		p.send(IsPlayingMsg{bool: false})
 		p.playing = false
 		for i := range p.song.Score.Tracks {
@@ -175,7 +201,7 @@ func (p *Player) advanceRow() {
 		return
 	}
 	for i, t := range p.song.Score.Tracks {
-		n := t.Note(p.songPos)
+		n := t.Note(p.status.SongPos)
 		switch {
 		case n == 0:
 			p.processNoteEvent(NoteEvent{Channel: i, IsTrack: true, Source: p, On: false})
@@ -187,6 +213,18 @@ func (p *Player) advanceRow() {
 	p.send(nil) // just send volume and song row information
 }
 
+func (p NullPlayerProcessContext) BPM() (bpm float64, ok bool) {
+	return 0, false // no BPM available
+}
+
+func isNaN(f float32) bool {
+	return f != f
+}
+
+func isInf(f float32) bool {
+	return f > math.MaxFloat32 || f < -math.MaxFloat32
+}
+
 func (p *Player) processMessages(context PlayerProcessContext) {
 loop:
 	for { // process new message
@@ -195,7 +233,7 @@ loop:
 			switch m := msg.(type) {
 			case PanicMsg:
 				if m.bool {
-					p.synth = nil
+					p.destroySynth()
 				} else {
 					p.compileOrUpdateSynth()
 				}
@@ -226,8 +264,8 @@ loop:
 				p.compileOrUpdateSynth()
 			case StartPlayMsg:
 				p.playing = true
-				p.songPos = m.SongPos
-				p.songPos.PatternRow--
+				p.status.SongPos = m.SongPos
+				p.status.SongPos.PatternRow--
 				p.rowtime = math.MaxInt
 				for i, t := range p.song.Score.Tracks {
 					if !t.Effect {
@@ -249,6 +287,10 @@ loop:
 					}
 					p.recording = Recording{} // reset recording
 				}
+			case sointu.Synther:
+				p.synther = m
+				p.destroySynth()
+				p.compileOrUpdateSynth()
 			default:
 				// ignore unknown messages
 			}
@@ -319,7 +361,7 @@ func (p *Player) compileOrUpdateSynth() {
 	if p.synth != nil {
 		err := p.synth.Update(p.song.Patch, p.song.BPM)
 		if err != nil {
-			p.synth = nil
+			p.destroySynth()
 			p.SendAlert("PlayerCrash", fmt.Sprintf("synth.Update: %v", err), Error)
 			return
 		}
@@ -327,7 +369,7 @@ func (p *Player) compileOrUpdateSynth() {
 		var err error
 		p.synth, err = p.synther.Synth(p.song.Patch, p.song.BPM)
 		if err != nil {
-			p.synth = nil
+			p.destroySynth()
 			p.SendAlert("PlayerCrash", fmt.Sprintf("synther.Synth: %v", err), Error)
 			return
 		}
@@ -345,7 +387,7 @@ func (p *Player) compileOrUpdateSynth() {
 
 // all sendTargets from player are always non-blocking, to ensure that the player thread cannot end up in a dead-lock
 func (p *Player) send(message interface{}) {
-	TrySend(p.broker.ToModel, MsgToModel{HasPanicPosLevels: true, Panic: p.synth == nil, SongPosition: p.songPos, VoiceLevels: p.voiceLevels, Data: message})
+	TrySend(p.broker.ToModel, MsgToModel{HasPanicPlayerStatus: true, Panic: p.synth == nil, PlayerStatus: p.status, Data: message})
 }
 
 func (p *Player) processNoteEvent(ev NoteEvent) {
@@ -401,7 +443,7 @@ func (p *Player) processNoteEvent(ev NoteEvent) {
 		return
 	}
 	p.voices[oldestVoice] = voice{triggerEvent: ev, sustain: true, samplesSinceEvent: 0}
-	p.voiceLevels[oldestVoice] = 1.0
+	p.status.VoiceLevels[oldestVoice] = 1.0
 	p.synth.Trigger(oldestVoice, ev.Note)
 	TrySend(p.broker.ToModel, MsgToModel{TriggerChannel: instrIndex + 1})
 }

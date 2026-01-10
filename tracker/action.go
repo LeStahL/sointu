@@ -92,6 +92,17 @@ type (
 		Item MIDIDevice
 		*Model
 	}
+	ShowLicense Model
+
+	ChooseSendSource struct {
+		ID int
+		*Model
+	}
+	ChooseSendTarget struct {
+		ID   int
+		Port int
+		*Model
+	}
 )
 
 // Action methods
@@ -123,6 +134,9 @@ func (a Action) Do() {
 }
 
 func (a Action) Enabled() bool {
+	if a.doer == nil {
+		return false // no doer, not allowed
+	}
 	if a.enabler == nil {
 		return true // no enabler, always allowed
 	}
@@ -276,9 +290,12 @@ func (m *ClearUnit) Enabled() bool {
 }
 func (m *ClearUnit) Do() {
 	defer (*Model)(m).change("DeleteUnitAction", PatchChange, MajorChange)()
-	m.d.UnitIndex = max(min(m.d.UnitIndex, len(m.d.Song.Patch[m.d.InstrIndex].Units)-1), 0)
-	m.d.Song.Patch[m.d.InstrIndex].Units[m.d.UnitIndex] = sointu.Unit{}
-	m.d.Song.Patch[m.d.InstrIndex].Units[m.d.UnitIndex].ID = (*Model)(m).maxID() + 1
+	l := ((*Model)(m)).Units().List()
+	r := l.listRange()
+	for i := r.Start; i < r.End; i++ {
+		m.d.Song.Patch[m.d.InstrIndex].Units[i] = sointu.Unit{}
+		m.d.Song.Patch[m.d.InstrIndex].Units[i].ID = (*Model)(m).maxID() + 1
+	}
 }
 
 // Undo
@@ -294,6 +311,7 @@ func (m *Undo) Do() {
 	m.d = m.undoStack[len(m.undoStack)-1]
 	m.undoStack = m.undoStack[:len(m.undoStack)-1]
 	m.prevUndoKind = ""
+	(*Model)(m).updateDeriveData(SongChange)
 	TrySend(m.broker.ToPlayer, any(m.d.Song.Copy()))
 }
 
@@ -310,28 +328,29 @@ func (m *Redo) Do() {
 	m.d = m.redoStack[len(m.redoStack)-1]
 	m.redoStack = m.redoStack[:len(m.redoStack)-1]
 	m.prevUndoKind = ""
+	(*Model)(m).updateDeriveData(SongChange)
 	TrySend(m.broker.ToPlayer, any(m.d.Song.Copy()))
 }
 
 // AddSemiTone
 
 func (m *Model) AddSemitone() Action { return MakeEnabledAction((*AddSemitone)(m)) }
-func (m *AddSemitone) Do()           { Table{(*Notes)(m)}.Add(1) }
+func (m *AddSemitone) Do()           { Table{(*Notes)(m)}.Add(1, false) }
 
 // SubtractSemitone
 
 func (m *Model) SubtractSemitone() Action { return MakeEnabledAction((*SubtractSemitone)(m)) }
-func (m *SubtractSemitone) Do()           { Table{(*Notes)(m)}.Add(-1) }
+func (m *SubtractSemitone) Do()           { Table{(*Notes)(m)}.Add(-1, false) }
 
 // AddOctave
 
 func (m *Model) AddOctave() Action { return MakeEnabledAction((*AddOctave)(m)) }
-func (m *AddOctave) Do()           { Table{(*Notes)(m)}.Add(12) }
+func (m *AddOctave) Do()           { Table{(*Notes)(m)}.Add(1, true) }
 
 // SubtractOctave
 
 func (m *Model) SubtractOctave() Action { return MakeEnabledAction((*SubtractOctave)(m)) }
-func (m *SubtractOctave) Do()           { Table{(*Notes)(m)}.Add(-12) }
+func (m *SubtractOctave) Do()           { Table{(*Notes)(m)}.Add(-1, true) }
 
 // EditNoteOff
 
@@ -509,6 +528,44 @@ func (d DeleteOrderRow) Do() {
 	m.d.Cursor2.OrderRow = m.d.Cursor.OrderRow
 }
 
+// ChooseSendSource
+
+func (m *Model) IsChoosingSendTarget() bool {
+	return m.d.SendSource > 0
+}
+
+func (m *Model) ChooseSendSource(id int) Action {
+	return MakeEnabledAction(ChooseSendSource{ID: id, Model: m})
+}
+func (s ChooseSendSource) Do() {
+	defer (*Model)(s.Model).change("ChooseSendSource", NoChange, MinorChange)()
+	if s.Model.d.SendSource == s.ID {
+		s.Model.d.SendSource = 0 // unselect
+		return
+	}
+	s.Model.d.SendSource = s.ID
+}
+
+// ChooseSendTarget
+
+func (m *Model) ChooseSendTarget(id int, port int) Action {
+	return MakeEnabledAction(ChooseSendTarget{ID: id, Port: port, Model: m})
+}
+func (s ChooseSendTarget) Do() {
+	defer (*Model)(s.Model).change("ChooseSendTarget", SongChange, MinorChange)()
+	sourceID := (*Model)(s.Model).d.SendSource
+	s.d.SendSource = 0
+	if sourceID <= 0 || s.ID <= 0 || s.Port < 0 || s.Port > 7 {
+		return
+	}
+	si, su, err := s.d.Song.Patch.FindUnit(sourceID)
+	if err != nil {
+		return
+	}
+	s.d.Song.Patch[si].Units[su].Parameters["target"] = s.ID
+	s.d.Song.Patch[si].Units[su].Parameters["port"] = s.Port
+}
+
 // NewSong
 
 func (m *Model) NewSong() Action { return MakeEnabledAction((*NewSong)(m)) }
@@ -583,6 +640,9 @@ func (m *ExportFloat) Do()           { m.dialog = ExportFloatExplorer }
 
 func (m *Model) ExportInt16() Action { return MakeEnabledAction((*ExportInt16)(m)) }
 func (m *ExportInt16) Do()           { m.dialog = ExportInt16Explorer }
+
+func (m *Model) ShowLicense() Action { return MakeEnabledAction((*ShowLicense)(m)) }
+func (m *ShowLicense) Do()           { m.dialog = License }
 
 func (m *Model) SelectMidiInput(item MIDIDevice) Action {
 	return MakeEnabledAction(SelectMidiInput{Item: item, Model: m})

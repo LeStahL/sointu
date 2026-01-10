@@ -18,14 +18,13 @@ type (
 		Cursor2() Point
 		SetCursor(Point)
 		SetCursor2(Point)
-		SetCursorFloat(x, y float32)
 		Width() int
 		Height() int
 		MoveCursor(dx, dy int) (ok bool)
 
 		clear(p Point)
 		set(p Point, value int)
-		add(rect Rect, delta int) (ok bool)
+		add(rect Rect, delta int, largestep bool) (ok bool)
 		marshal(rect Rect) (data []byte, ok bool)
 		unmarshalAtCursor(data []byte) (ok bool)
 		unmarshalRange(rect Rect, data []byte) (ok bool)
@@ -136,9 +135,9 @@ func (v Table) Fill(value int) {
 	}
 }
 
-func (v Table) Add(delta int) {
+func (v Table) Add(delta int, largeStep bool) {
 	defer v.change("Add", MinorChange)()
-	if !v.add(v.Range(), delta) {
+	if !v.add(v.Range(), delta, largeStep) {
 		v.cancel()
 	}
 }
@@ -189,10 +188,6 @@ func (m *Order) SetCursor2(p Point) {
 	m.updateCursorRows()
 }
 
-func (m *Order) SetCursorFloat(x, y float32) {
-	m.SetCursor(Point{int(x), int(y)})
-}
-
 func (v *Order) updateCursorRows() {
 	if v.Cursor() == v.Cursor2() {
 		v.d.Cursor.PatternRow = 0
@@ -232,7 +227,10 @@ func (m *Order) set(p Point, value int) {
 	m.d.Song.Score.Tracks[p.X].Order.Set(p.Y, value)
 }
 
-func (v *Order) add(rect Rect, delta int) (ok bool) {
+func (v *Order) add(rect Rect, delta int, largeStep bool) (ok bool) {
+	if largeStep {
+		delta *= 8
+	}
 	for x := rect.TopLeft.X; x <= rect.BottomRight.X; x++ {
 		for y := rect.TopLeft.Y; y <= rect.BottomRight.Y; y++ {
 			if !v.add1(Point{x, y}, delta) {
@@ -445,7 +443,10 @@ func (v *Notes) set(p Point, value int) {
 	v.SetValue(p, byte(value))
 }
 
-func (v *Notes) add(rect Rect, delta int) (ok bool) {
+func (v *Notes) add(rect Rect, delta int, largeStep bool) (ok bool) {
+	if largeStep {
+		delta *= 12
+	}
 	for x := rect.BottomRight.X; x >= rect.TopLeft.X; x-- {
 		for y := rect.BottomRight.Y; y >= rect.TopLeft.Y; y-- {
 			if x < 0 || x >= len(v.d.Song.Score.Tracks) || y < 0 || y >= v.d.Song.Score.LengthInRows() {

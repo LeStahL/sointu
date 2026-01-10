@@ -1,0 +1,66 @@
+comment: Brass sound use for short stabs at C1-C2 range
+numvoices: 1
+units:
+    - id: 225
+      parameters: {}
+      comment: Main envelopes
+    - type: envelope
+      id: 163
+      parameters: {attack: 24, decay: 128, gain: 64, release: 89, stereo: 0, sustain: 128}
+    - type: envelope
+      id: 215
+      parameters: {attack: 0, decay: 69, gain: 64, release: 66, stereo: 0, sustain: 0}
+    - type: mulp
+      id: 216
+      parameters: {stereo: 0}
+    - id: 226
+      parameters: {}
+      comment: Main oscillators
+    - type: oscillator
+      id: 164
+      parameters: {color: 40, detune: 64, gain: 128, lfo: 0, phase: 68, shape: 88, stereo: 0, transpose: 64, type: 1, unison: 3}
+    - type: add
+      id: 214
+      parameters: {stereo: 0}
+    - type: oscillator
+      id: 165
+      parameters: {color: 78, detune: 57, gain: 128, lfo: 0, phase: 0, shape: 58, stereo: 0, transpose: 76, type: 1, unison: 2}
+    - type: addp
+      id: 166
+      parameters: {stereo: 0}
+    - type: distort
+      id: 221
+      parameters: {drive: 59, stereo: 0}
+    - type: mulp
+      id: 167
+      parameters: {stereo: 0}
+    - id: 227
+      parameters: {}
+      comment: Effects & output
+    - type: compressor
+      id: 222
+      parameters: {attack: 41, invgain: 128, ratio: 93, release: 54, stereo: 0, threshold: 46}
+    - type: mulp
+      id: 223
+      parameters: {stereo: 0}
+    - type: filter
+      id: 217
+      parameters: {bandpass: 1, frequency: 54, highpass: 1, lowpass: 1, resonance: 24, stereo: 0}
+    - type: filter
+      id: 218
+      parameters: {bandpass: 0, frequency: 59, highpass: -1, lowpass: 1, resonance: 128, stereo: 0}
+    - type: pan
+      id: 168
+      parameters: {panning: 61, stereo: 0}
+    - type: outaux
+      id: 172
+      parameters: {auxgain: 10, outgain: 12, stereo: 1}
+    - id: 224
+      parameters: {}
+      comment: Filter modulation
+    - type: loadnote
+      id: 219
+      parameters: {stereo: 0}
+    - type: send
+      id: 220
+      parameters: {amount: 89, port: 0, sendpop: 1, stereo: 0, target: 218, voice: 0}

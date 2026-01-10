@@ -10,7 +10,7 @@ import (
 
 	"github.com/vsariola/sointu"
 	"github.com/vsariola/sointu/vm"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type (
@@ -36,9 +36,9 @@ type (
 	}
 
 	UnitListItem struct {
-		Type, Comment                      string
-		Disabled                           bool
-		StackNeed, StackBefore, StackAfter int
+		Type, Comment string
+		Disabled      bool
+		Signals       Rail
 	}
 
 	// Range is used to represent a range [Start,End) of integers
@@ -55,7 +55,6 @@ type (
 	OrderRows     Model // OrderRows is a list of all the order rows, implementing ListData & MutableListData interfaces
 	NoteRows      Model // NoteRows is a list of all the note rows, implementing ListData & MutableListData interfaces
 	SearchResults Model // SearchResults is a unmutable list of all the search results, implementing ListData interface
-	Presets       Model // Presets is a unmutable list of all the presets, implementing ListData interface
 )
 
 // Model methods
@@ -174,7 +173,7 @@ func (v *Instruments) Item(i int) (name string, maxLevel float32, mute bool, ok 
 		end = vm.MAX_VOICES
 	}
 	if start < end {
-		for _, level := range v.voiceLevels[start:end] {
+		for _, level := range v.playerStatus.VoiceLevels[start:end] {
 			if maxLevel < level {
 				maxLevel = level
 			}
@@ -299,24 +298,21 @@ func (m *Units) SetSelectedType(t string) {
 	m.d.Song.Patch[m.d.InstrIndex].Units[m.d.UnitIndex].ID = oldUnit.ID // keep the ID of the replaced unit
 }
 
-func (v *Units) Iterate(yield UnitYieldFunc) {
-	if v.d.InstrIndex < 0 || v.d.InstrIndex >= len(v.d.Song.Patch) {
-		return
+func (v *Units) Item(index int) UnitListItem {
+	i := v.d.InstrIndex
+	if i < 0 || i >= len(v.d.Song.Patch) || index < 0 || index >= v.Count() {
+		return UnitListItem{}
 	}
-	stackBefore := 0
-	for i, unit := range v.d.Song.Patch[v.d.InstrIndex].Units {
-		stackAfter := stackBefore + unit.StackChange()
-		if !yield(i, UnitListItem{
-			Type:        unit.Type,
-			Comment:     unit.Comment,
-			Disabled:    unit.Disabled,
-			StackNeed:   unit.StackNeed(),
-			StackBefore: stackBefore,
-			StackAfter:  stackAfter,
-		}) {
-			break
-		}
-		stackBefore = stackAfter
+	unit := v.d.Song.Patch[v.d.InstrIndex].Units[index]
+	signals := Rail{}
+	if i >= 0 && i < len(v.derived.patch) && index >= 0 && index < len(v.derived.patch[i].rails) {
+		signals = v.derived.patch[i].rails[index]
+	}
+	return UnitListItem{
+		Type:     unit.Type,
+		Comment:  unit.Comment,
+		Disabled: unit.Disabled,
+		Signals:  signals,
 	}
 }
 
@@ -704,6 +700,15 @@ func (l *SearchResults) Iterate(yield UnitSearchYieldFunc) {
 		}
 		index++
 	}
+}
+
+func (l *SearchResults) Item(index int) (name string, ok bool) {
+	for i, n := range l.Iterate {
+		if i == index {
+			return n, true
+		}
+	}
+	return "", false
 }
 
 func (l *SearchResults) Selected() int {

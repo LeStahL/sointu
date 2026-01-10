@@ -82,7 +82,7 @@ func (m *Model) WriteWav(w io.WriteCloser, pcm16 bool) {
 		b := make([]byte, 32+2)
 		rand.Read(b)
 		name := fmt.Sprintf("%x", b)[2 : 32+2]
-		data, err := sointu.Play(m.synther, song, func(p float32) {
+		data, err := sointu.Play(m.synthers[m.syntherIndex], song, func(p float32) {
 			txt := fmt.Sprintf("Exporting song: %.0f%%", p*100)
 			TrySend(m.broker.ToModel, MsgToModel{Data: Alert{Message: txt, Priority: Info, Name: name, Duration: defaultAlertDuration}})
 		}) // render the song to calculate its length
@@ -114,13 +114,17 @@ func (m *Model) SaveInstrument(w io.WriteCloser) bool {
 	var extension = filepath.Ext(path)
 	var contents []byte
 	var err error
+	instr := m.d.Song.Patch[m.d.InstrIndex]
+	if _, ok := w.(*os.File); ok {
+		instr.Name = "" // don't save the instrument name to a file; we'll replace the instruments name with the filename when loading from a file
+	}
 	if extension == ".json" {
-		contents, err = json.Marshal(m.d.Song.Patch[m.d.InstrIndex])
+		contents, err = json.Marshal(instr)
 	} else {
-		contents, err = yaml.Marshal(m.d.Song.Patch[m.d.InstrIndex])
+		contents, err = yaml.Marshal(instr)
 	}
 	if err != nil {
-		m.Alerts().Add(fmt.Sprintf("Error marshaling a ínstrument file: %v", err), Error)
+		m.Alerts().Add(fmt.Sprintf("Error marshaling an instrument file: %v", err), Error)
 		return false
 	}
 	w.Write(contents)
@@ -163,7 +167,7 @@ func (m *Model) LoadInstrument(r io.ReadCloser) bool {
 success:
 	if f, ok := r.(*os.File); ok {
 		filename := f.Name()
-		// the 4klang instrument names are junk, replace them with the filename without extension
+		// the instrument names are generally junk, replace them with the filename without extension
 		instrument.Name = filepath.Base(filename[:len(filename)-len(filepath.Ext(filename))])
 	}
 	defer m.change("LoadInstrument", PatchChange, MajorChange)()
@@ -182,8 +186,5 @@ success:
 	instrument.NumVoices = clamp(instrument.NumVoices, 1, 32-numVoices)
 	m.assignUnitIDs(instrument.Units)
 	m.d.Song.Patch[m.d.InstrIndex] = instrument
-	if m.d.Song.Patch[m.d.InstrIndex].Comment != "" {
-		m.commentExpanded = true
-	}
 	return true
 }

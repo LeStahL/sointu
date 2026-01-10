@@ -83,6 +83,15 @@ func (m *Alerts) AddNamed(name, message string, priority AlertPriority) {
 	})
 }
 
+func (m *Alerts) ClearNamed(name string) {
+	for i := range m.alerts {
+		if n := m.alerts[i].Name; n != "" && n == name {
+			m.alerts[i].Duration = 0
+			return
+		}
+	}
+}
+
 func (m *Alerts) AddAlert(a Alert) {
 	for i := range m.alerts {
 		if n := m.alerts[i].Name; n != "" && n == a.Name {
@@ -96,15 +105,17 @@ func (m *Alerts) AddAlert(a Alert) {
 }
 
 func (m *Alerts) Push(x any) {
+	if _, ok := x.(Alert); !ok {
+		panic("invalid type for Alerts.Push, expected Alert")
+	}
 	m.alerts = append(m.alerts, x.(Alert))
 }
 
 func (m *Alerts) Pop() any {
-	old := m.alerts
-	n := len(old)
-	x := old[n-1]
-	m.alerts = old[0 : n-1]
-	return x
+	n := len(m.alerts)
+	last := m.alerts[n-1]
+	m.alerts = m.alerts[:n-1]
+	return last
 }
 
 func (m Alerts) Len() int           { return len(m.alerts) }

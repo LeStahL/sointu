@@ -7,23 +7,16 @@ import (
 	"io"
 	"testing"
 
+	"github.com/vsariola/sointu"
 	"github.com/vsariola/sointu/tracker"
 	"github.com/vsariola/sointu/vm"
 )
 
 type NullContext struct{}
 
-func (NullContext) FinishBlock(frame int) {}
-
 func (NullContext) BPM() (bpm float64, ok bool) {
 	return 0, false
 }
-
-func (NullContext) InputDevices(yield func(tracker.MIDIDevice) bool) {}
-
-func (NullContext) HasDeviceOpen() bool { return false }
-
-func (NullContext) Close() {}
 
 type modelFuzzState struct {
 	model     *tracker.Model
@@ -57,12 +50,14 @@ func (s *modelFuzzState) Iterate(yield func(string, func(p string, t *testing.T)
 	s.IterateList("OrderRows", s.model.OrderRows().List(), yield, seed)
 	s.IterateList("NoteRows", s.model.NoteRows().List(), yield, seed)
 	s.IterateList("UnitSearchResults", s.model.SearchResults().List(), yield, seed)
+	s.IterateList("PresetDirs", s.model.PresetDirList().List(), yield, seed)
+	s.IterateList("PresetResults", s.model.PresetResultList().List(), yield, seed)
+	// Bools
 	s.IterateBool("Panic", s.model.Panic(), yield, seed)
 	s.IterateBool("Recording", s.model.IsRecording(), yield, seed)
 	s.IterateBool("Playing", s.model.Playing(), yield, seed)
 	s.IterateBool("InstrEnlarged", s.model.InstrEnlarged(), yield, seed)
 	s.IterateBool("Effect", s.model.Effect(), yield, seed)
-	s.IterateBool("CommentExpanded", s.model.CommentExpanded(), yield, seed)
 	s.IterateBool("Follow", s.model.Follow(), yield, seed)
 	s.IterateBool("UniquePatterns", s.model.UniquePatterns(), yield, seed)
 	s.IterateBool("LinkInstrTrack", s.model.LinkInstrTrack(), yield, seed)
@@ -95,8 +90,6 @@ func (s *modelFuzzState) Iterate(yield func(string, func(p string, t *testing.T)
 	s.IterateAction("DeleteOrderRowBackward", s.model.DeleteOrderRow(true), yield, seed)
 	s.IterateAction("SplitInstrument", s.model.SplitInstrument(), yield, seed)
 	s.IterateAction("SplitTrack", s.model.SplitTrack(), yield, seed)
-	// just test loading one of the presets
-	s.IterateAction("LoadPreset", s.model.LoadPreset(seed%tracker.NumPresets()), yield, seed)
 	// Tables
 	s.IterateTable("Order", s.model.Order().Table(), yield, seed)
 	s.IterateTable("Notes", s.model.Notes().Table(), yield, seed)
@@ -247,7 +240,7 @@ func (s *modelFuzzState) IterateTable(name string, table tracker.Table, yield fu
 		table.Fill(seed % 16)
 	})
 	yield(name+".Add", func(p string, t *testing.T) {
-		table.Add(seed % 16)
+		table.Add((seed>>1)%16, seed%2 == 0)
 	})
 }
 
@@ -259,10 +252,10 @@ func FuzzModel(f *testing.F) {
 	f.Add(seed)
 	f.Fuzz(func(t *testing.T, slice []byte) {
 		reader := bytes.NewReader(slice)
-		synther := vm.GoSynther{}
+		synthers := []sointu.Synther{vm.GoSynther{}}
 		broker := tracker.NewBroker()
-		model := tracker.NewModel(broker, synther, NullContext{}, "")
-		player := tracker.NewPlayer(broker, synther)
+		model := tracker.NewModel(broker, synthers, tracker.NullMIDIContext{}, "")
+		player := tracker.NewPlayer(broker, synthers[0])
 		buf := make([][2]float32, 2048)
 		closeChan := make(chan struct{})
 		go func() {
