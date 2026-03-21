@@ -68,6 +68,17 @@ type (
 		Comment string `yaml:",omitempty"`
 	}
 
+	// MIDI contains info on how MIDI events should trigger an instrument
+	MIDI struct {
+		Channel       int  `yaml:",omitempty"` // 0 means automatically assigned channel, 1-16 means MIDI channel 1-16
+		Start         int  `yaml:",omitempty"` // MIDI note number to start on, 0-127
+		End           int  `yaml:",omitempty"` // MIDI note number to end on, counted backwards from 127, done so that the default number of 0 corresponds to "full keyboard", without any splittings
+		Transpose     int  `yaml:",omitempty"` // value to be added to the MIDI note/velocity number, can be negative
+		Velocity      bool `yaml:",omitempty"` // if true, then this instrument triggered by midi event velocity instead of its note number
+		NoRetrigger   bool `yaml:",omitempty"` // if true, then this instrument does not retrigger if two consecutive events have the same value
+		IgnoreNoteOff bool `yaml:",omitempty"` // if true, then this instrument should ignore note off events, i.e. notes never release
+	}
+
 	ParamMap map[string]int
 
 	// UnitType documents the parameters and stack use of a unit type
@@ -114,13 +125,8 @@ var UnitTypes = map[string]UnitType{
 		},
 	},
 	"addp": {
-		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
-		StackUse: func(u *Unit) StackUse {
-			if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
-				return StackUse{Inputs: [][]int{{0}, {1}, {0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
-			}
-			return StackUse{Inputs: [][]int{{0}, {0}}, Modifies: []bool{true}, NumOutputs: 1}
-		},
+		Params:   []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
+		StackUse: stackUseMixdown,
 	},
 	"mul": {
 		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
@@ -132,13 +138,8 @@ var UnitTypes = map[string]UnitType{
 		},
 	},
 	"mulp": {
-		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
-		StackUse: func(u *Unit) StackUse {
-			if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
-				return StackUse{Inputs: [][]int{{0}, {1}, {0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
-			}
-			return StackUse{Inputs: [][]int{{0}, {0}}, Modifies: []bool{true}, NumOutputs: 1}
-		},
+		Params:   []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
+		StackUse: stackUseMixdown,
 	},
 	"xch": {
 		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
@@ -418,37 +419,55 @@ var UnitTypes = map[string]UnitType{
 	},
 	// units210:
 	"envelopexp": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
-		{Name: "exp_attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
-		{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
-		{Name: "exp_decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
-		{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
-		{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true}},
-	"atan": {{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
+			{Name: "exp_attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
+			{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
+			{Name: "exp_decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
+			{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
+			{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseSource,
+	},
+	"atan": {
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		},
+		StackUse: stackUseEffect,
+	},
 	"signlogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
-		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
+			{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseMixdown,
 	},
 	"bytelogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
-		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
+			{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseMixdown,
 	},
 	"floatlogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
-		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
+			{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseMixdown,
 	},
 	//"feeelter": {
 	//	{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
@@ -459,12 +478,15 @@ var UnitTypes = map[string]UnitType{
 	//	{Name: "param5", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 	//},
 	"reeeverb": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "dry", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "pregain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: false, DisplayFunc: reeeverbTimeDisplay},
-		// <-- "decay" is on CanModulate: false, because no idea how to allow re-computation of the echoes in ASM
-		//		when it is changed, call "go generate" (and if not last param, change the params index in go_synth.go)
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "dry", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "pregain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "decay", MinValue: 0, MaxValue: 255, CanSet: true, CanModulate: false, DisplayFunc: reeeverbTimeDisplay},
+			// <-- "decay" is on CanModulate: false, because no idea how to allow re-computation of the echoes in ASM
+			//		when it is changed, call "go generate" (and if not last param, change the params index in go_synth.go)
+		},
+		StackUse: stackUseEffect,
 	},
 }
 
@@ -487,6 +509,13 @@ func stackUseEffect(u *Unit) StackUse {
 		return StackUse{Inputs: [][]int{{0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
 	}
 	return StackUse{Inputs: [][]int{{0}}, Modifies: []bool{true}, NumOutputs: 1}
+}
+
+func stackUseMixdown(u *Unit) StackUse {
+	if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
+		return StackUse{Inputs: [][]int{{0}, {1}, {0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
+	}
+	return StackUse{Inputs: [][]int{{0}, {0}}, Modifies: []bool{true}, NumOutputs: 1}
 }
 
 // Effects like the Compressor add their calculated factor on top of the stack,

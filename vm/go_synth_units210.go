@@ -99,16 +99,23 @@ func NewReeeverbCore() reverbCore {
 	// QM: didn't find an easy accessible source for the (seemingly) constant sample rate
 	const sampleRate float32 = 44100.
 	// we fix these for now, but make them adjustable for experimentation later:
-	var numberEchoes int = 210
-	var loopSeconds float32 = 1.0
+	var numberEchoes uint32 = 210
+	// var loopSeconds float32 = 1.0
 	// currently, the bufferSize is not limited, but if we need this:
 	// maxLoopSeconds := float32(maxBufferSize/2) / sampleRate
 	// for reference: loopSeconds = 1 -> bufferSize = 88200 = 2 * 210 * 210 :)
-	spacingSamples := uint32(sampleRate * loopSeconds / float32(numberEchoes))
-	loopSamples := spacingSamples * uint32(numberEchoes)
+	// spacingSamples := uint32(sampleRate * loopSeconds / float32(numberEchoes))
+	// loopSamples := spacingSamples * uint32(numberEchoes)
+
+	// bufferSize needs to be power of two for efficient modulo later on
+	var bufferSize float32 = float32(math.Pow(2, 17))
+	loopSamples := uint32(0.5 * bufferSize)
+	spacingSamples := loopSamples / numberEchoes
+	loopSeconds := float32(loopSamples) / sampleRate
+	_ = loopSeconds // <-- just for troubleshooting
 	return reverbCore{
 		echoes:         make([]reverbVoice, 0),
-		echoesSetSize:  numberEchoes,
+		echoesSetSize:  int(numberEchoes),
 		loopSamples:    loopSamples,
 		bufferSize:     2 * loopSamples,
 		spacingSamples: spacingSamples,

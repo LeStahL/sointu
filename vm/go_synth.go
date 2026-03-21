@@ -746,21 +746,26 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 				var echo *reverbVoice
 				echo, reeeverbEchoes = &reeeverbEchoes[0], reeeverbEchoes[1:]
 				stackIndex := l - channels
+				// as bufferSize is supposed to be a power of 2, these are modulo operations:
+				// ... % s.reeeverb.bufferSize == ... & (s.reeeverb.bufferSize - 1)
+				sizeModulo := s.reeeverb.bufferSize - 1
+				echoesSize := s.reeeverb.echoesSetSize
 				for i := 0; i < channels; i++ {
 					signal := stack[stackIndex]
 					output := drygain * signal
 					workBuffer := echo.buffers[i]
 					posRead := uint32(unit.state[i])
-					for e := 0; e < s.reeeverb.echoesSetSize; e++ {
-						gain := echo.params[e].amplitude * pregain
-						pos := (posRead + echo.params[e].pos) % s.reeeverb.bufferSize
+					for e := 0; e < echoesSize; e++ {
+						param := echo.params[e]
+						gain := param.amplitude * pregain
+						pos := (posRead + param.pos) & sizeModulo
 						workBuffer[pos] += gain * signal
 					}
 					output += workBuffer[posRead]
-					posFb := (posRead + s.reeeverb.loopSamples) % s.reeeverb.bufferSize
+					posFb := (posRead + s.reeeverb.loopSamples) & sizeModulo
 					workBuffer[posFb] += echo.feedbackGain * workBuffer[posRead]
 					workBuffer[posRead] = 0
-					unit.state[i] = float32((posRead + 1) % s.reeeverb.bufferSize)
+					unit.state[i] = float32((posRead + 1) & sizeModulo)
 					stack[stackIndex] = output
 					stackIndex++
 				}

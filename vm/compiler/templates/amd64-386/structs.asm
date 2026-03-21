@@ -56,15 +56,15 @@ endstruc
 ; --> units210: su_reverb_core struct
 ;-------------------------------------------------------------------------------
 struc   su_reverb_sampling
-    pos         resd    1
-    amp         resd    1
+    .pos         resd    1
+    .amp         resd    1
     .size:
 endstruc
 
+; params will be fixed for now - i.e. decay time can not be modulated
+; TODO: still, find out how they get in here (compare with the delayline/delaytime structs)
 struc   su_reverb_wrk
-    ; params will be fixed for now - i.e. decay time can not be modulated
-    ; TODO: still, find out how they get in here (compare with the delayline/delaytime structs)
-    .params     resb    210 * su_reverb_sampling.size
+    .params     resb    su_reverb_sampling.size * 210
     .bufferL    resd    131072 ; buffers are 2^17 in max size because 2^16 is too short for 1sec loop length
     .bufferR    resd    131072
     .normgain   resd    1

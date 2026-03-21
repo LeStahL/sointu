@@ -72,12 +72,9 @@ func Synth(patch sointu.Patch, bpm int) (*NativeSynth, error) {
 	s.NumVoices = C.uint(comPatch.NumVoices)
 	s.Polyphony = C.uint(comPatch.PolyphonyBitmask)
 	s.RandSeed = 1
-<<<<<<< HEAD
 	// units210: Reeeverb has s.ReverbWrks, must get initialized here (other than seemingly s.DelayWrks...)
 	// s.ReverbWrks ...
 	//
-	return (*NativeSynth)(s), nil
-=======
 	return &NativeSynth{csynth: *s}, nil
 }
 
@@ -89,7 +86,6 @@ func (s *NativeSynth) CPULoad(loads []sointu.CPULoad) int {
 	}
 	loads[0] = s.cpuLoad
 	return 1
->>>>>>> master-upstream
 }
 
 // Render renders until the buffer is full or the modulated time is reached, whichever
