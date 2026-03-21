@@ -198,7 +198,7 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 			}
 			tcount := transformCounts[opNoStereo-1]
 			if len(operands) < tcount {
-				return samples, time, errors.New("operand stream ended prematurely")
+				return samples, renderTime, errors.New("operand stream ended prematurely")
 			}
 			voice := &voices[0]
 			unit := &units[0]
@@ -305,7 +305,7 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 				r := unit.state[0] + float32(math.Exp2(float64(stack[l-1]*2.206896551724138))-1)
 				w := int(r+1.5) - 1
 				unit.state[0] = r - float32(w)
-				time += w
+				renderTime += w
 				stack = stack[:l-1]
 			case opIn:
 				var channel byte
@@ -662,7 +662,7 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 				var valid bool
 				stack, valid = processUnits210(stack, unit, opNoStereo, stereo, params, voices)
 				if !valid {
-					return samples, time, errors.New("invalid / unimplemented opcode")
+					return samples, renderTime, errors.New("invalid / unimplemented opcode")
 				}
 				return samples, renderTime, errors.New("invalid / unimplemented opcode")
 			}
