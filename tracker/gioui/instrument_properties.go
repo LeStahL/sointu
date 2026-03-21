@@ -27,6 +27,16 @@ type (
 		voices              *NumericUpDownState
 		splitInstrumentBtn  *Clickable
 		splitInstrumentHint string
+
+		ignoreNoteOff *Clickable
+		velocity      *Clickable
+		change        *Clickable
+		noteStart     *NumericUpDownState
+		noteEnd       *NumericUpDownState
+		transpose     *NumericUpDownState
+		midiChannel   *NumericUpDownState
+
+		scrollBar ScrollBar
 	}
 )
 
@@ -40,6 +50,14 @@ func NewInstrumentProperties() *InstrumentProperties {
 		voices:             NewNumericUpDownState(),
 		splitInstrumentBtn: new(Clickable),
 		threadBtns:         [4]*Clickable{new(Clickable), new(Clickable), new(Clickable), new(Clickable)},
+		ignoreNoteOff:      new(Clickable),
+		velocity:           new(Clickable),
+		change:             new(Clickable),
+		noteStart:          NewNumericUpDownState(),
+		noteEnd:            NewNumericUpDownState(),
+		transpose:          NewNumericUpDownState(),
+		midiChannel:        NewNumericUpDownState(),
+		scrollBar:          ScrollBar{Axis: layout.Vertical},
 	}
 	ret.soloHint = makeHint("Solo", " (%s)", "SoloToggle")
 	ret.unsoloHint = makeHint("Unsolo", " (%s)", "SoloToggle")
@@ -58,20 +76,20 @@ func (ip *InstrumentProperties) layout(gtx C) D {
 	// get tracker from values
 	tr := TrackerFromContext(gtx)
 	voiceLine := func(gtx C) D {
-		splitInstrumentBtn := ActionIconBtn(tr.SplitInstrument(), tr.Theme, ip.splitInstrumentBtn, icons.CommunicationCallSplit, ip.splitInstrumentHint)
+		splitInstrumentBtn := ActionIconBtn(tr.Instrument().Split(), tr.Theme, ip.splitInstrumentBtn, icons.CommunicationCallSplit, ip.splitInstrumentHint)
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx C) D {
-				instrumentVoices := NumUpDown(tr.Model.InstrumentVoices(), tr.Theme, ip.voices, "Number of voices for this instrument")
+				instrumentVoices := NumUpDown(tr.Model.Instrument().Voices(), tr.Theme, ip.voices, "Number of voices for this instrument")
 				return instrumentVoices.Layout(gtx)
 			}),
 			layout.Rigid(splitInstrumentBtn.Layout),
 		)
 	}
 
-	thread1btn := ToggleIconBtn(tr.Thread1(), tr.Theme, ip.threadBtns[0], icons.ImageCropSquare, icons.ImageFilter1, "Do not render instrument on thread 1", "Render instrument on thread 1")
-	thread2btn := ToggleIconBtn(tr.Thread2(), tr.Theme, ip.threadBtns[1], icons.ImageCropSquare, icons.ImageFilter2, "Do not render instrument on thread 2", "Render instrument on thread 2")
-	thread3btn := ToggleIconBtn(tr.Thread3(), tr.Theme, ip.threadBtns[2], icons.ImageCropSquare, icons.ImageFilter3, "Do not render instrument on thread 3", "Render instrument on thread 3")
-	thread4btn := ToggleIconBtn(tr.Thread4(), tr.Theme, ip.threadBtns[3], icons.ImageCropSquare, icons.ImageFilter4, "Do not render instrument on thread 4", "Render instrument on thread 4")
+	thread1btn := ToggleIconBtn(tr.Instrument().Thread1(), tr.Theme, ip.threadBtns[0], icons.ImageCropSquare, icons.ImageFilter1, "Do not render instrument on thread 1", "Render instrument on thread 1")
+	thread2btn := ToggleIconBtn(tr.Instrument().Thread2(), tr.Theme, ip.threadBtns[1], icons.ImageCropSquare, icons.ImageFilter2, "Do not render instrument on thread 2", "Render instrument on thread 2")
+	thread3btn := ToggleIconBtn(tr.Instrument().Thread3(), tr.Theme, ip.threadBtns[2], icons.ImageCropSquare, icons.ImageFilter3, "Do not render instrument on thread 3", "Render instrument on thread 3")
+	thread4btn := ToggleIconBtn(tr.Instrument().Thread4(), tr.Theme, ip.threadBtns[3], icons.ImageCropSquare, icons.ImageFilter4, "Do not render instrument on thread 4", "Render instrument on thread 4")
 
 	threadbtnline := func(gtx C) D {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -81,26 +99,57 @@ func (ip *InstrumentProperties) layout(gtx C) D {
 			layout.Rigid(thread4btn.Layout),
 		)
 	}
-
-	return ip.list.Layout(gtx, 11, func(gtx C, index int) D {
+	ret := ip.list.Layout(gtx, 18, func(gtx C, index int) D {
+		gtx.Constraints.Max.X = min(gtx.Dp(300), gtx.Constraints.Max.X)
+		gtx.Constraints.Min.X = min(gtx.Constraints.Max.X, gtx.Constraints.Min.X)
 		switch index {
 		case 0:
 			return layoutInstrumentPropertyLine(gtx, "Name", func(gtx C) D {
-				return ip.nameEditor.Layout(gtx, tr.InstrumentName(), tr.Theme, &tr.Theme.InstrumentEditor.InstrumentComment, "Instr")
+				return ip.nameEditor.Layout(gtx, tr.Instrument().Name(), tr.Theme, &tr.Theme.InstrumentEditor.InstrumentComment, "Instr")
 			})
 		case 2:
 			return layoutInstrumentPropertyLine(gtx, "Voices", voiceLine)
 		case 4:
-			muteBtn := ToggleIconBtn(tr.Mute(), tr.Theme, ip.muteBtn, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, ip.muteHint, ip.unmuteHint)
+			muteBtn := ToggleIconBtn(tr.Instrument().Mute(), tr.Theme, ip.muteBtn, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, ip.muteHint, ip.unmuteHint)
 			return layoutInstrumentPropertyLine(gtx, "Mute", muteBtn.Layout)
-		case 6:
-			soloBtn := ToggleIconBtn(tr.Solo(), tr.Theme, ip.soloBtn, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, ip.soloHint, ip.unsoloHint)
+		case 5:
+			soloBtn := ToggleIconBtn(tr.Instrument().Solo(), tr.Theme, ip.soloBtn, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, ip.soloHint, ip.unsoloHint)
 			return layoutInstrumentPropertyLine(gtx, "Solo", soloBtn.Layout)
-		case 8:
+		case 7:
 			return layoutInstrumentPropertyLine(gtx, "Thread", threadbtnline)
+		case 9:
+			l := Label(tr.Theme, &tr.Theme.InstrumentEditor.Properties.Label, "MIDI")
+			l.Alignment = text.Middle
+			return l.Layout(gtx)
 		case 10:
+			channelLine := NumUpDown(tr.MIDI().Channel(), tr.Theme, ip.midiChannel, "0 = automatic")
+			return layoutInstrumentPropertyLine(gtx, "Channel", channelLine.Layout)
+		case 11:
+			start := NumUpDown(tr.MIDI().NoteStart(), tr.Theme, ip.noteStart, "Lowest note triggering\nthis instrument")
+			end := NumUpDown(tr.MIDI().NoteEnd(), tr.Theme, ip.noteEnd, "Highest note triggering\nthis instrument")
+			noteRangeLine := func(gtx C) D {
+				return layout.Flex{}.Layout(gtx,
+					layout.Rigid(start.Layout),
+					layout.Rigid(layout.Spacer{Width: 6}.Layout),
+					layout.Rigid(end.Layout),
+				)
+			}
+			return layoutInstrumentPropertyLine(gtx, "Note range", noteRangeLine)
+		case 12:
+			transpose := NumUpDown(tr.MIDI().Transpose(), tr.Theme, ip.transpose, "Transpose of the MIDI values")
+			return layoutInstrumentPropertyLine(gtx, "Transpose", transpose.Layout)
+		case 13:
+			velocityBtn := ToggleIconBtn(tr.MIDI().Velocity(), tr.Theme, ip.velocity, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, "Instrument triggered by\nMIDI note", "Instrument triggered by\nMIDI velocity")
+			return layoutInstrumentPropertyLine(gtx, "Velocity", velocityBtn.Layout)
+		case 14:
+			retriggerBtn := ToggleIconBtn(tr.MIDI().Change(), tr.Theme, ip.change, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, "Every note/velocity retriggers", "Retrigger only when\nnote/velocity changes")
+			return layoutInstrumentPropertyLine(gtx, "No retrigger", retriggerBtn.Layout)
+		case 15:
+			noteOff := ToggleIconBtn(tr.MIDI().IgnoreNoteOff(), tr.Theme, ip.ignoreNoteOff, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, "Notes released", "Notes never released")
+			return layoutInstrumentPropertyLine(gtx, "Ignore note off", noteOff.Layout)
+		case 17:
 			return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx C) D {
-				return ip.commentEditor.Layout(gtx, tr.InstrumentComment(), tr.Theme, &tr.Theme.InstrumentEditor.InstrumentComment, "Comment")
+				return ip.commentEditor.Layout(gtx, tr.Instrument().Comment(), tr.Theme, &tr.Theme.InstrumentEditor.InstrumentComment, "Comment")
 			})
 		default: // odd valued list items are dividers
 			px := max(gtx.Dp(unit.Dp(1)), 1)
@@ -108,11 +157,12 @@ func (ip *InstrumentProperties) layout(gtx C) D {
 			return D{Size: image.Pt(gtx.Constraints.Max.X, px)}
 		}
 	})
+	ip.scrollBar.Layout(gtx, &tr.Theme.ScrollBar, 18, &ip.list.Position)
+	return ret
 }
 
 func layoutInstrumentPropertyLine(gtx C, text string, content layout.Widget) D {
 	tr := TrackerFromContext(gtx)
-	gtx.Constraints.Max.X = min(gtx.Dp(300), gtx.Constraints.Max.X)
 	label := Label(tr.Theme, &tr.Theme.InstrumentEditor.Properties.Label, text)
 	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 		layout.Rigid(layout.Spacer{Width: 6, Height: 36}.Layout),

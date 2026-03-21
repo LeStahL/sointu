@@ -3,8 +3,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.6.0]
 ### Added
+- Binary builds for sointu-play from GitHub Actions on all platforms.
+  ([#226][i226]) 
+- Song corpus with songs from real intros for testing size optimizations in
+  Sointu systematically. ([#227][i227]) 
+- MIDI velocity, keyboard splitting, forcing specific instrument to use
+  particular MIDI channel, and ability to transpose the incoming note values.
+  These settings can be configured under instrument properties. ([#124][i124],
+  [#215][i215], [#221][i221])
+- Ability to bind MIDI controllers to specific parameters. The MIDI menu has the
+  options to bind/unbind parameters. When the user starts binding a parameter,
+  Sointu waits for the next MIDI Control Change event and binds the currently
+  selected parameter to that controller. ([#152][i152])
+- Plot the envelope shape on top of the oscilloscope when the envelope unit is
+  selected.
+- Spectrum analyzer showing the spectrum. When the user has a filter or belleq
+  unit selected, it's frequency response is plotted on top. ([#67][i67])
 - belleq unit: a bell-shaped second-order filter for equalization. Belleq unit
   takes the center frequency, bandwidth (inverse of Q-factor) and gain (+-40
   dB). Useful for boosting or reducing specific frequency ranges. Kudos to Reaby
@@ -23,12 +39,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the loudness and peak detector. ([#210][i210])
 - More presets from Reaby, and all new and existing presets were normalized
   roughly to -12 dBFS true peak. ([#211][i211])
+- noisegate unit: suppress signals below a threshold power. Parameters are
+  the attack (time to close the gate), release (time to open up again) and
+  hold times (how long, below threshold, to delay the closing) ([#109][i109])
 
 ### Fixed
+- VSTi queries the host sample rate more robustly. Cubase previously reported
+  the sample rate as 0 Hz, leading to persistent error message about the sample
+  rate not being 44100 Hz. ([#222][i222])
+- Occasional NaNs in the Trisaw oscillator when color was = 0 or color = 128
 - The tracker thought that "sync" unit pops the value from stack, even if the VM
   did not, resulting it claiming errors in patches that worked once compiled.
 
 ### Changed
+- Save only units and comment to instrument files, as we keep all the other
+  fields while loading a new instrument / preset and the name comes from the
+  filename.
+- Recovery files were moved to `os.UserConfigDir()/sointu/recovery/` instead of
+  `os.UserConfigDir()/sointu/` so that they don't pollute the main configuration
+  directory and so that it's easy to delete just the recovery files.
+- Tracker model supports now enum-style values, which are integers that have a
+  name associated with them. These enums are used to display menus where you
+  select one of the options, for example in the MIDI menu to choose one of the
+  ports; a context menu in to choose which instrument triggers the oscilloscope;
+  and a context menu to choose the weighting type in the loudness detector.
+- The song panel can scroll if all the widgets don't fit into it
 - The provided MacOS executables are now arm64, which means the x86 native
   synths are not compiled in.
 
@@ -343,7 +378,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - a command line utility to convert .yml songs to .asm
   - a command line utility to play the songs on command line
 
-[Unreleased]: https://github.com/vsariola/sointu/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/vsariola/sointu/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/vsariola/sointu/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/vsariola/sointu/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/vsariola/sointu/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/vsariola/sointu/compare/v0.3.0...v0.4.0
@@ -352,6 +388,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [0.1.0]: https://github.com/vsariola/sointu/compare/4klang-3.11...v0.1.0
 [i61]: https://github.com/vsariola/sointu/issues/61
 [i65]: https://github.com/vsariola/sointu/issues/65
+[i67]: https://github.com/vsariola/sointu/issues/67
 [i68]: https://github.com/vsariola/sointu/issues/68
 [i77]: https://github.com/vsariola/sointu/issues/77
 [i91]: https://github.com/vsariola/sointu/issues/91
@@ -362,6 +399,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i120]: https://github.com/vsariola/sointu/issues/120
 [i121]: https://github.com/vsariola/sointu/issues/121
 [i122]: https://github.com/vsariola/sointu/issues/122
+[i124]: https://github.com/vsariola/sointu/issues/124
 [i125]: https://github.com/vsariola/sointu/issues/125
 [i128]: https://github.com/vsariola/sointu/issues/128
 [i129]: https://github.com/vsariola/sointu/issues/129
@@ -377,6 +415,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i149]: https://github.com/vsariola/sointu/issues/149
 [i150]: https://github.com/vsariola/sointu/issues/150
 [i151]: https://github.com/vsariola/sointu/issues/151
+[i152]: https://github.com/vsariola/sointu/issues/152
 [i153]: https://github.com/vsariola/sointu/issues/153
 [i154]: https://github.com/vsariola/sointu/issues/154
 [i155]: https://github.com/vsariola/sointu/issues/155
@@ -400,3 +439,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i200]: https://github.com/vsariola/sointu/issues/200
 [i210]: https://github.com/vsariola/sointu/issues/210
 [i211]: https://github.com/vsariola/sointu/issues/211
+[i215]: https://github.com/vsariola/sointu/issues/215
+[i221]: https://github.com/vsariola/sointu/issues/221
+[i222]: https://github.com/vsariola/sointu/issues/222
+[i226]: https://github.com/vsariola/sointu/issues/226
+[i227]: https://github.com/vsariola/sointu/issues/227

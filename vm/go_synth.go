@@ -490,10 +490,10 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 						}
 						omega += float64(unit.ports[6]) // add frequency modulation
 						var amplitude float32
-						*statevar += float32(omega)
+						phase := float64(*statevar) + omega
 						if flags&0x80 == 0x80 { // if this is a sample oscillator
-							phase := *statevar
-							phase += params[2]
+							*statevar = float32(phase)
+							phase += float64(params[2])
 							sampleno := operandsAtTransform[3] // reuse color as the sample number
 							sampleoffset := s.bytecode.SampleOffsets[sampleno]
 							sampleindex := int(phase*84.28074964676522 + 0.5)
@@ -506,22 +506,25 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 							sampleindex += int(sampleoffset.Start)
 							amplitude = float32(int16(binary.LittleEndian.Uint16(su_sample_table[sampleindex*2:]))) / 32767.0
 						} else {
-							*statevar -= float32(int(*statevar+1) - 1)
-							phase := *statevar
-							phase += params[2]
-							phase -= float32(int(phase))
-							color := params[3]
+							// at this point, the native synth actually uses 80-bit precision, so emulate that as closely as possible by using 64-bit math here
+							phase += 1
+							phase -= float64(int(phase))
+							*statevar = float32(phase)
+							phase += float64(params[2])
+							phase += 1
+							phase -= float64(int(phase)) // this should guaranteee that phase is [0,1), so that the Trisaw should not nan even if color = 1
+							color := float64(params[3])
 							switch {
 							case flags&0x40 == 0x40: // Sine
 								if phase < color {
-									amplitude = float32(math.Sin(2 * math.Pi * float64(phase/color)))
+									amplitude = float32(math.Sin(2 * math.Pi * phase / color))
 								}
 							case flags&0x20 == 0x20: // Trisaw
-								if phase >= color {
+								if phase >= color { // since phase cannot be 1, if color = 1, then this condition never fires
 									phase = 1 - phase
 									color = 1 - color
 								}
-								amplitude = phase/color*2 - 1
+								amplitude = float32(phase/color*2 - 1)
 							case flags&0x10 == 0x10: // Pulse
 								if phase >= color {
 									amplitude = -1
@@ -621,6 +624,45 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 					unit.state[i] = b1*x - a1*y + unit.state[2+i]
 					unit.state[2+i] = b2*x - a2*y
 					stack[l-1-i] = y
+				}
+			case opNoisegate:
+				signal := stack[l-1] * stack[l-1]
+				if stereo {
+					signalR := stack[l-2] * stack[l-2]
+					if signal < signalR {
+						signal = signalR
+					}
+				}
+				threshold := params[0] * params[0]
+				// unit.state takes inverse level, to be initialized at 1
+				level := 1 - unit.state[0]
+				holding := unit.state[1]
+				// attacking is delayed until "holding" did count down to 0
+				if signal > threshold {
+					holding = 1
+				} else if holding > 0 {
+					holding -= nonLinearMap(params[3])
+				}
+				if holding > 0 {
+					release := nonLinearMap(params[2])
+					level += release
+					if level > 1 {
+						level = 1
+					}
+				} else {
+					attack := nonLinearMap(params[1])
+					level -= attack
+					if level < 0 {
+						level = 0
+					}
+				}
+				unit.state[0] = 1 - level
+				unit.state[1] = holding
+				// like the compressor, this does not directly multiply the factor
+				// but writes it onto the stack for the user to decide what to do
+				stack = append(stack, level)
+				if stereo {
+					stack = append(stack, level)
 				}
 			case opSync:
 				break

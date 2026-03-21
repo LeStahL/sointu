@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/vsariola/sointu"
@@ -33,10 +34,10 @@ type (
 	// corresponding part of the model changes.
 	derivedModelData struct {
 		// map Unit by ID, other entities by their respective index
-		patch        []derivedInstrument
-		tracks       []derivedTrack
-		railError    RailError
-		presetSearch derivedPresetSearch
+		patch         []derivedInstrument
+		tracks        []derivedTrack
+		railError     RailError
+		searchResults []string
 	}
 
 	derivedInstrument struct {
@@ -45,6 +46,7 @@ type (
 		railWidth   int
 		params      [][]Parameter
 		paramsWidth int
+		title       string
 	}
 
 	derivedTrack struct {
@@ -52,52 +54,6 @@ type (
 		patternUseCounts []int
 	}
 )
-
-// public methods to access the derived data
-
-func (s *Model) RailError() RailError { return s.derived.railError }
-
-func (s *Model) RailWidth() int {
-	i := s.d.InstrIndex
-	if i < 0 || i >= len(s.derived.patch) {
-		return 0
-	}
-	return s.derived.patch[i].railWidth
-}
-
-func (m *Model) Wires(yield func(wire Wire) bool) {
-	i := m.d.InstrIndex
-	if i < 0 || i >= len(m.derived.patch) {
-		return
-	}
-	for _, wire := range m.derived.patch[i].wires {
-		wire.Highlight = (wire.FromSet && m.d.UnitIndex == wire.From) || (wire.ToSet && m.d.UnitIndex == wire.To.Y && m.d.ParamIndex == wire.To.X)
-		if !yield(wire) {
-			return
-		}
-	}
-}
-
-func (m *Model) TrackTitle(index int) string {
-	if index < 0 || index >= len(m.derived.tracks) {
-		return ""
-	}
-	return m.derived.tracks[index].title
-}
-
-func (m *Model) PatternUnique(track, pat int) bool {
-	if track < 0 || track >= len(m.derived.tracks) {
-		return false
-	}
-	if pat < 0 || pat >= len(m.derived.tracks[track].patternUseCounts) {
-		return false
-	}
-	return m.derived.tracks[track].patternUseCounts[pat] <= 1
-}
-
-func (e *RailError) Error() string { return e.Err.Error() }
-
-func (s *Rail) StackAfter() int { return s.PassThrough + s.StackUse.NumOutputs }
 
 // init / update methods
 
@@ -118,6 +74,25 @@ func (m *Model) updateDeriveData(changeType ChangeType) {
 		m.updateParams()
 		m.updateRails()
 		m.updateWires()
+		m.buildInstrumentTitles()
+	}
+}
+
+func (m *Model) buildInstrumentTitles() {
+	m.midiAssign.update(m.d.Song.Patch)
+	for i, instr := range m.d.Song.Patch {
+		if i >= len(m.midiAssign.itoc) || m.midiAssign.itoc[i] == 0 {
+			m.derived.patch[i].title = "---"
+			continue
+		}
+		t := strconv.Itoa(m.midiAssign.itoc[i])
+		if instr.MIDI.Velocity {
+			t = t + " vel"
+		}
+		if instr.MIDI.Start > 0 || instr.MIDI.End > 0 {
+			t = t + fmt.Sprintf(" [%d-%d]", instr.MIDI.Start, 127-instr.MIDI.End)
+		}
+		m.derived.patch[i].title = t
 	}
 }
 
@@ -141,7 +116,7 @@ func (m *Model) deriveParams(unit *sointu.Unit, ret []Parameter) []Parameter {
 		return ret
 	}
 	portIndex := 0
-	for i, up := range unitType {
+	for i, up := range unitType.Params {
 		if !up.CanSet && !up.CanModulate {
 			continue // skip parameters that cannot be set or modulated
 		}
@@ -156,7 +131,7 @@ func (m *Model) deriveParams(unit *sointu.Unit, ret []Parameter) []Parameter {
 			portIndex++
 			q = portIndex
 		}
-		ret = append(ret, Parameter{m: m, unit: unit, up: &unitType[i], vtable: &namedParameter{}, port: q})
+		ret = append(ret, Parameter{m: m, unit: unit, up: &unitType.Params[i], vtable: &namedParameter{}, port: q})
 	}
 	if unit.Type == "oscillator" && unit.Parameters["type"] == sointu.Sample {
 		ret = append(ret, Parameter{m: m, unit: unit, vtable: &gmDlsEntryParameter{}})

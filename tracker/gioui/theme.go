@@ -32,7 +32,7 @@ type Theme struct {
 		Emphasis IconButtonStyle
 		Error    IconButtonStyle
 	}
-	Oscilloscope  OscilloscopeStyle
+	Plot          PlotStyle
 	NumericUpDown NumericUpDownStyle
 	SongPanel     struct {
 		RowHeader  LabelStyle
@@ -41,6 +41,7 @@ type Theme struct {
 		Version    LabelStyle
 		ErrorColor color.NRGBA
 		Bg         color.NRGBA
+		ScrollBar  ScrollBarStyle
 	}
 	Alert      AlertStyles
 	NoteEditor struct {
@@ -127,8 +128,9 @@ type Theme struct {
 		Bg    color.NRGBA
 	}
 	Popup struct {
-		Menu   PopupStyle
-		Dialog PopupStyle
+		Menu        PopupStyle
+		Dialog      PopupStyle
+		ContextMenu PopupStyle
 	}
 	Split        SplitStyle
 	ScrollBar    ScrollBarStyle

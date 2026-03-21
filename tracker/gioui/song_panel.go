@@ -8,7 +8,10 @@ import (
 	"strconv"
 	"strings"
 
+	"gioui.org/f32"
 	"gioui.org/gesture"
+	"gioui.org/io/event"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -26,10 +29,12 @@ type SongPanel struct {
 	LoudnessExpander     *Expander
 	PeakExpander         *Expander
 	CPUExpander          *Expander
+	SpectrumExpander     *Expander
 
-	WeightingTypeBtn *Clickable
-	OversamplingBtn  *Clickable
-	SynthBtn         *Clickable
+	WeightingTypeBtn  *Clickable
+	OversamplingBtn   *Clickable
+	SynthBtn          *Clickable
+	MultithreadingBtn *Clickable
 
 	BPM            *NumericUpDownState
 	RowsPerPattern *NumericUpDownState
@@ -37,7 +42,16 @@ type SongPanel struct {
 	Step           *NumericUpDownState
 	SongLength     *NumericUpDownState
 
-	Scope *OscilloscopeState
+	weightingMenuState *MenuState
+
+	List      *layout.List
+	ScrollBar *ScrollBar
+
+	Scope         *OscilloscopeState
+	ScopeScaleBar *ScaleBar
+
+	SpectrumState    *SpectrumState
+	SpectrumScaleBar *ScaleBar
 
 	MenuBar *MenuBar
 	PlayBar *PlayBar
@@ -50,33 +64,41 @@ func NewSongPanel(tr *Tracker) *SongPanel {
 		RowsPerBeat:    NewNumericUpDownState(),
 		Step:           NewNumericUpDownState(),
 		SongLength:     NewNumericUpDownState(),
-		Scope:          NewOscilloscope(tr.Model),
+		Scope:          NewOscilloscope(),
 		MenuBar:        NewMenuBar(tr),
 		PlayBar:        NewPlayBar(),
 
-		WeightingTypeBtn: new(Clickable),
-		OversamplingBtn:  new(Clickable),
-		SynthBtn:         new(Clickable),
+		WeightingTypeBtn:  new(Clickable),
+		OversamplingBtn:   new(Clickable),
+		SynthBtn:          new(Clickable),
+		MultithreadingBtn: new(Clickable),
 
 		SongSettingsExpander: &Expander{Expanded: true},
 		ScopeExpander:        &Expander{},
 		LoudnessExpander:     &Expander{},
 		PeakExpander:         &Expander{},
 		CPUExpander:          &Expander{},
+		SpectrumExpander:     &Expander{},
+
+		List:      &layout.List{Axis: layout.Vertical},
+		ScrollBar: &ScrollBar{Axis: layout.Vertical},
+
+		weightingMenuState: new(MenuState),
+
+		SpectrumState:    NewSpectrumState(),
+		SpectrumScaleBar: &ScaleBar{Axis: layout.Vertical, BarSize: 10, Size: 300},
+		ScopeScaleBar:    &ScaleBar{Axis: layout.Vertical, BarSize: 10, Size: 300},
 	}
 	return ret
 }
 
 func (s *SongPanel) Update(gtx C, t *Tracker) {
-	for s.WeightingTypeBtn.Clicked(gtx) {
-		t.Model.DetectorWeighting().SetValue((t.DetectorWeighting().Value() + 1) % int(tracker.NumWeightingTypes))
-	}
 	for s.OversamplingBtn.Clicked(gtx) {
-		t.Model.Oversampling().SetValue(!t.Oversampling().Value())
+		t.Model.Detector().Oversampling().SetValue(!t.Detector().Oversampling().Value())
 	}
 	for s.SynthBtn.Clicked(gtx) {
-		r := t.Model.SyntherIndex().Range()
-		t.Model.SyntherIndex().SetValue((t.SyntherIndex().Value()+1)%(r.Max-r.Min+1) + r.Min)
+		r := t.Model.Play().SyntherIndex().Range()
+		t.Model.Play().SyntherIndex().SetValue((t.Play().SyntherIndex().Value()+1)%(r.Max-r.Min+1) + r.Min)
 	}
 }
 
@@ -94,29 +116,18 @@ func (t *SongPanel) layoutSongOptions(gtx C) D {
 	tr := TrackerFromContext(gtx)
 	paint.FillShape(gtx.Ops, tr.Theme.SongPanel.Bg, clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Op())
 
-	var weightingTxt string
-	switch tracker.WeightingType(tr.Model.DetectorWeighting().Value()) {
-	case tracker.KWeighting:
-		weightingTxt = "K-weight (LUFS)"
-	case tracker.AWeighting:
-		weightingTxt = "A-weight"
-	case tracker.CWeighting:
-		weightingTxt = "C-weight"
-	case tracker.NoWeighting:
-		weightingTxt = "No weight (RMS)"
-	}
-
-	weightingBtn := Btn(tr.Theme, &tr.Theme.Button.Text, t.WeightingTypeBtn, weightingTxt, "")
+	weightingBtn := MenuBtn(t.weightingMenuState, t.WeightingTypeBtn, tr.Detector().Weighting().String()).
+		WithBtnStyle(&tr.Theme.Button.Text).WithPopupStyle(&tr.Theme.Popup.ContextMenu)
 
 	oversamplingTxt := "Sample peak"
-	if tr.Model.Oversampling().Value() {
+	if tr.Model.Detector().Oversampling().Value() {
 		oversamplingTxt = "True peak"
 	}
 	oversamplingBtn := Btn(tr.Theme, &tr.Theme.Button.Text, t.OversamplingBtn, oversamplingTxt, "")
 
 	cpuSmallLabel := func(gtx C) D {
 		var a [vm.MAX_THREADS]sointu.CPULoad
-		c := tr.Model.CPULoad(a[:])
+		c := tr.Play().CPULoad(a[:])
 		if c < 1 {
 			return D{}
 		}
@@ -131,7 +142,7 @@ func (t *SongPanel) layoutSongOptions(gtx C) D {
 	cpuEnlargedWidget := func(gtx C) D {
 		var sb strings.Builder
 		var a [vm.MAX_THREADS]sointu.CPULoad
-		c := tr.Model.CPULoad(a[:])
+		c := tr.Play().CPULoad(a[:])
 		high := false
 		for i := range c {
 			if i > 0 {
@@ -150,100 +161,100 @@ func (t *SongPanel) layoutSongOptions(gtx C) D {
 		return cpuLabel.Layout(gtx)
 	}
 
-	synthBtn := Btn(tr.Theme, &tr.Theme.Button.Text, t.SynthBtn, tr.Model.SyntherName(), "")
+	synthBtn := Btn(tr.Theme, &tr.Theme.Button.Text, t.SynthBtn, tr.Model.Play().SyntherIndex().String(), "")
+	multithreadingBtn := ToggleIconBtn(tr.Play().Multithreading(), tr.Theme, t.MultithreadingBtn, icons.ToggleCheckBoxOutlineBlank, icons.ToggleCheckBox, "Threading disabled", "Threading enabled")
 
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx C) D {
+	listItem := func(gtx C, index int) D {
+		switch index {
+		case 0:
 			return t.SongSettingsExpander.Layout(gtx, tr.Theme, "Song",
 				func(gtx C) D {
-					return Label(tr.Theme, &tr.Theme.SongPanel.RowHeader, strconv.Itoa(tr.BPM().Value())+" BPM").Layout(gtx)
+					return Label(tr.Theme, &tr.Theme.SongPanel.RowHeader, strconv.Itoa(tr.Song().BPM().Value())+" BPM").Layout(gtx)
 				},
 				func(gtx C) D {
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(func(gtx C) D {
-							bpm := NumUpDown(tr.BPM(), tr.Theme, t.BPM, "BPM")
+							bpm := NumUpDown(tr.Song().BPM(), tr.Theme, t.BPM, "BPM")
 							return layoutSongOptionRow(gtx, tr.Theme, "BPM", bpm.Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							songLength := NumUpDown(tr.SongLength(), tr.Theme, t.SongLength, "Song length")
+							songLength := NumUpDown(tr.Song().Length(), tr.Theme, t.SongLength, "Song length")
 							return layoutSongOptionRow(gtx, tr.Theme, "Song length", songLength.Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							rowsPerPattern := NumUpDown(tr.RowsPerPattern(), tr.Theme, t.RowsPerPattern, "Rows per pattern")
+							rowsPerPattern := NumUpDown(tr.Song().RowsPerPattern(), tr.Theme, t.RowsPerPattern, "Rows per pattern")
 							return layoutSongOptionRow(gtx, tr.Theme, "Rows per pat", rowsPerPattern.Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							rowsPerBeat := NumUpDown(tr.RowsPerBeat(), tr.Theme, t.RowsPerBeat, "Rows per beat")
+							rowsPerBeat := NumUpDown(tr.Song().RowsPerBeat(), tr.Theme, t.RowsPerBeat, "Rows per beat")
 							return layoutSongOptionRow(gtx, tr.Theme, "Rows per beat", rowsPerBeat.Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							step := NumUpDown(tr.Step(), tr.Theme, t.Step, "Cursor step")
+							step := NumUpDown(tr.Note().Step(), tr.Theme, t.Step, "Cursor step")
 							return layoutSongOptionRow(gtx, tr.Theme, "Cursor step", step.Layout)
 						}),
 					)
 				})
-		}),
-		layout.Rigid(func(gtx C) D {
+		case 1:
 			return t.CPUExpander.Layout(gtx, tr.Theme, "CPU", cpuSmallLabel,
 				func(gtx C) D {
 					return layout.Flex{Axis: layout.Vertical, Alignment: layout.End}.Layout(gtx,
 						layout.Rigid(func(gtx C) D { return layoutSongOptionRow(gtx, tr.Theme, "Load", cpuEnlargedWidget) }),
 						layout.Rigid(func(gtx C) D { return layoutSongOptionRow(gtx, tr.Theme, "Synth", synthBtn.Layout) }),
+						layout.Rigid(func(gtx C) D { return layoutSongOptionRow(gtx, tr.Theme, "Multithreading", multithreadingBtn.Layout) }),
 					)
 				},
 			)
-		}),
-		layout.Rigid(func(gtx C) D {
+		case 2:
 			return t.LoudnessExpander.Layout(gtx, tr.Theme, "Loudness",
 				func(gtx C) D {
-					loudness := tr.Model.DetectorResult().Loudness[tracker.LoudnessShortTerm]
+					loudness := tr.Model.Detector().Result().Loudness[tracker.LoudnessShortTerm]
 					return dbLabel(tr.Theme, loudness).Layout(gtx)
 				},
 				func(gtx C) D {
 					return layout.Flex{Axis: layout.Vertical, Alignment: layout.End}.Layout(gtx,
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Momentary", dbLabel(tr.Theme, tr.Model.DetectorResult().Loudness[tracker.LoudnessMomentary]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Momentary", dbLabel(tr.Theme, tr.Model.Detector().Result().Loudness[tracker.LoudnessMomentary]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Short term", dbLabel(tr.Theme, tr.Model.DetectorResult().Loudness[tracker.LoudnessShortTerm]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Short term", dbLabel(tr.Theme, tr.Model.Detector().Result().Loudness[tracker.LoudnessShortTerm]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Integrated", dbLabel(tr.Theme, tr.Model.DetectorResult().Loudness[tracker.LoudnessIntegrated]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Integrated", dbLabel(tr.Theme, tr.Model.Detector().Result().Loudness[tracker.LoudnessIntegrated]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Max. momentary", dbLabel(tr.Theme, tr.Model.DetectorResult().Loudness[tracker.LoudnessMaxMomentary]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Max. momentary", dbLabel(tr.Theme, tr.Model.Detector().Result().Loudness[tracker.LoudnessMaxMomentary]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Max. short term", dbLabel(tr.Theme, tr.Model.DetectorResult().Loudness[tracker.LoudnessMaxShortTerm]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Max. short term", dbLabel(tr.Theme, tr.Model.Detector().Result().Loudness[tracker.LoudnessMaxShortTerm]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
 							gtx.Constraints.Min.X = 0
-							return weightingBtn.Layout(gtx)
+							return weightingBtn.Layout(gtx, IntMenuChild(tr.Detector().Weighting(), icons.NavigationCheck))
 						}),
 					)
 				},
 			)
-		}),
-		layout.Rigid(func(gtx C) D {
+		case 3:
 			return t.PeakExpander.Layout(gtx, tr.Theme, "Peaks",
 				func(gtx C) D {
-					maxPeak := max(tr.Model.DetectorResult().Peaks[tracker.PeakShortTerm][0], tr.Model.DetectorResult().Peaks[tracker.PeakShortTerm][1])
+					maxPeak := max(tr.Model.Detector().Result().Peaks[tracker.PeakShortTerm][0], tr.Model.Detector().Result().Peaks[tracker.PeakShortTerm][1])
 					return dbLabel(tr.Theme, maxPeak).Layout(gtx)
 				},
 				func(gtx C) D {
 					return layout.Flex{Axis: layout.Vertical, Alignment: layout.End}.Layout(gtx,
 						// no need to show momentary peak, it does not have too much meaning
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Short term L", dbLabel(tr.Theme, tr.Model.DetectorResult().Peaks[tracker.PeakShortTerm][0]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Short term L", dbLabel(tr.Theme, tr.Model.Detector().Result().Peaks[tracker.PeakShortTerm][0]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Short term R", dbLabel(tr.Theme, tr.Model.DetectorResult().Peaks[tracker.PeakShortTerm][1]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Short term R", dbLabel(tr.Theme, tr.Model.Detector().Result().Peaks[tracker.PeakShortTerm][1]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Integrated L", dbLabel(tr.Theme, tr.Model.DetectorResult().Peaks[tracker.PeakIntegrated][0]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Integrated L", dbLabel(tr.Theme, tr.Model.Detector().Result().Peaks[tracker.PeakIntegrated][0]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
-							return layoutSongOptionRow(gtx, tr.Theme, "Integrated R", dbLabel(tr.Theme, tr.Model.DetectorResult().Peaks[tracker.PeakIntegrated][1]).Layout)
+							return layoutSongOptionRow(gtx, tr.Theme, "Integrated R", dbLabel(tr.Theme, tr.Model.Detector().Result().Peaks[tracker.PeakIntegrated][1]).Layout)
 						}),
 						layout.Rigid(func(gtx C) D {
 							gtx.Constraints.Min.X = 0
@@ -252,13 +263,28 @@ func (t *SongPanel) layoutSongOptions(gtx C) D {
 					)
 				},
 			)
-		}),
-		layout.Flexed(1, func(gtx C) D {
-			scope := Scope(tr.Theme, tr.Model.SignalAnalyzer(), t.Scope)
-			return t.ScopeExpander.Layout(gtx, tr.Theme, "Oscilloscope", func(gtx C) D { return D{} }, scope.Layout)
-		}),
-		layout.Rigid(Label(tr.Theme, &tr.Theme.SongPanel.Version, version.VersionOrHash).Layout),
-	)
+		case 4:
+			scope := Scope(tr.Theme, t.Scope)
+			scopeScaleBar := func(gtx C) D {
+				return t.ScopeScaleBar.Layout(gtx, scope.Layout)
+			}
+			return t.ScopeExpander.Layout(gtx, tr.Theme, "Oscilloscope", func(gtx C) D { return D{} }, scopeScaleBar)
+		case 5:
+			spectrumScaleBar := func(gtx C) D {
+				return t.SpectrumScaleBar.Layout(gtx, t.SpectrumState.Layout)
+			}
+			return t.SpectrumExpander.Layout(gtx, tr.Theme, "Spectrum", func(gtx C) D { return D{} }, spectrumScaleBar)
+		case 6:
+			return Label(tr.Theme, &tr.Theme.SongPanel.Version, version.VersionOrHash).Layout(gtx)
+		default:
+			return D{}
+		}
+	}
+	gtx.Constraints.Min = gtx.Constraints.Max
+	dims := t.List.Layout(gtx, 7, listItem)
+	t.ScrollBar.Layout(gtx, &tr.Theme.SongPanel.ScrollBar, 7, &t.List.Position)
+	tr.Spectrum().Enabled().SetValue(t.SpectrumExpander.Expanded)
+	return dims
 }
 
 func dbLabel(th *Theme, value tracker.Decibel) LabelWidget {
@@ -280,6 +306,87 @@ func layoutSongOptionRow(gtx C, th *Theme, label string, widget layout.Widget) D
 		layout.Rigid(widget),
 		layout.Rigid(rightSpacer),
 	)
+}
+
+type ScaleBar struct {
+	Size, BarSize unit.Dp
+	Axis          layout.Axis
+
+	drag      bool
+	dragID    pointer.ID
+	dragStart f32.Point
+}
+
+func (s *ScaleBar) Layout(gtx C, w layout.Widget) D {
+	s.Update(gtx)
+	pxBar := gtx.Dp(s.BarSize)
+	pxTot := gtx.Dp(s.Size) + pxBar
+	var rect image.Rectangle
+	var size image.Point
+	if s.Axis == layout.Horizontal {
+		pxTot = min(max(gtx.Constraints.Min.X, pxTot), gtx.Constraints.Max.X)
+		px := pxTot - pxBar
+		rect = image.Rect(px, 0, pxTot, gtx.Constraints.Max.Y)
+		size = image.Pt(pxTot, gtx.Constraints.Max.Y)
+		gtx.Constraints.Max.X = px
+		gtx.Constraints.Min.X = min(gtx.Constraints.Min.X, px)
+	} else {
+		pxTot = min(max(gtx.Constraints.Min.Y, pxTot), gtx.Constraints.Max.Y)
+		px := pxTot - pxBar
+		rect = image.Rect(0, px, gtx.Constraints.Max.X, pxTot)
+		size = image.Pt(gtx.Constraints.Max.X, pxTot)
+		gtx.Constraints.Max.Y = px
+		gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, px)
+	}
+	area := clip.Rect(rect).Push(gtx.Ops)
+	event.Op(gtx.Ops, s)
+	if s.Axis == layout.Horizontal {
+		pointer.CursorColResize.Add(gtx.Ops)
+	} else {
+		pointer.CursorRowResize.Add(gtx.Ops)
+	}
+	area.Pop()
+	w(gtx)
+	return D{Size: size}
+}
+
+func (s *ScaleBar) Update(gtx C) {
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: s,
+			Kinds:  pointer.Press | pointer.Drag | pointer.Release,
+		})
+		if !ok {
+			break
+		}
+		e, ok := ev.(pointer.Event)
+		if !ok {
+			continue
+		}
+
+		switch e.Kind {
+		case pointer.Press:
+			if s.drag {
+				break
+			}
+			s.dragID = e.PointerID
+			s.dragStart = e.Position
+			s.drag = true
+		case pointer.Drag:
+			if s.dragID != e.PointerID {
+				break
+			}
+			if s.Axis == layout.Horizontal {
+				s.Size += gtx.Metric.PxToDp(int(e.Position.X - s.dragStart.X))
+			} else {
+				s.Size += gtx.Metric.PxToDp(int(e.Position.Y - s.dragStart.Y))
+			}
+			s.Size = max(s.Size, unit.Dp(50))
+			s.dragStart = e.Position
+		case pointer.Release, pointer.Cancel:
+			s.drag = false
+		}
+	}
 }
 
 type Expander struct {
@@ -352,8 +459,6 @@ type MenuBar struct {
 	Clickables []Clickable
 	MenuStates []MenuState
 
-	midiMenuItems []ActionMenuItem
-
 	panicHint string
 	PanicBtn  *Clickable
 }
@@ -365,11 +470,6 @@ func NewMenuBar(tr *Tracker) *MenuBar {
 		PanicBtn:   new(Clickable),
 		panicHint:  makeHint("Panic", " (%s)", "PanicToggle"),
 	}
-	for input := range tr.MIDI.InputDevices {
-		ret.midiMenuItems = append(ret.midiMenuItems,
-			MenuItem(tr.SelectMidiInput(input), input.String(), "", icons.ImageControlPoint),
-		)
-	}
 	return ret
 }
 
@@ -379,50 +479,69 @@ func (t *MenuBar) Layout(gtx C) D {
 	gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(36))
 
 	flex := layout.Flex{Axis: layout.Horizontal, Alignment: layout.End}
-	fileBtn := MenuBtn(tr.Theme, &t.MenuStates[0], &t.Clickables[0], "File")
+	fileBtn := MenuBtn(&t.MenuStates[0], &t.Clickables[0], "File")
 	fileFC := layout.Rigid(func(gtx C) D {
-		items := [...]ActionMenuItem{
-			MenuItem(tr.NewSong(), "New Song", keyActionMap["NewSong"], icons.ContentClear),
-			MenuItem(tr.OpenSong(), "Open Song", keyActionMap["OpenSong"], icons.FileFolder),
-			MenuItem(tr.SaveSong(), "Save Song", keyActionMap["SaveSong"], icons.ContentSave),
-			MenuItem(tr.SaveSongAs(), "Save Song As...", keyActionMap["SaveSongAs"], icons.ContentSave),
-			MenuItem(tr.Export(), "Export Wav...", keyActionMap["ExportWav"], icons.ImageAudiotrack),
-			MenuItem(tr.RequestQuit(), "Quit", keyActionMap["Quit"], icons.ActionExitToApp),
+		items := [...]MenuChild{
+			ActionMenuChild(tr.Song().New(), "New Song", keyActionMap["NewSong"], icons.ContentClear),
+			ActionMenuChild(tr.Song().Open(), "Open Song", keyActionMap["OpenSong"], icons.FileFolder),
+			ActionMenuChild(tr.Song().Save(), "Save Song", keyActionMap["SaveSong"], icons.ContentSave),
+			ActionMenuChild(tr.Song().SaveAs(), "Save Song As...", keyActionMap["SaveSongAs"], icons.ContentSave),
+			DividerMenuChild(),
+			ActionMenuChild(tr.Song().Export(), "Export Wav...", keyActionMap["ExportWav"], icons.ImageAudiotrack),
+			DividerMenuChild(),
+			ActionMenuChild(tr.RequestQuit(), "Quit", keyActionMap["Quit"], icons.ActionExitToApp),
 		}
 		if !canQuit {
-			return fileBtn.Layout(gtx, items[:len(items)-1]...)
+			return fileBtn.Layout(gtx, items[:len(items)-2]...)
 		}
 		return fileBtn.Layout(gtx, items[:]...)
 	})
-	editBtn := MenuBtn(tr.Theme, &t.MenuStates[1], &t.Clickables[1], "Edit")
+	editBtn := MenuBtn(&t.MenuStates[1], &t.Clickables[1], "Edit")
 	editFC := layout.Rigid(func(gtx C) D {
 		return editBtn.Layout(gtx,
-			MenuItem(tr.Undo(), "Undo", keyActionMap["Undo"], icons.ContentUndo),
-			MenuItem(tr.Redo(), "Redo", keyActionMap["Redo"], icons.ContentRedo),
-			MenuItem(tr.RemoveUnused(), "Remove unused data", keyActionMap["RemoveUnused"], icons.ImageCrop),
+			ActionMenuChild(tr.History().Undo(), "Undo", keyActionMap["Undo"], icons.ContentUndo),
+			ActionMenuChild(tr.History().Redo(), "Redo", keyActionMap["Redo"], icons.ContentRedo),
+			DividerMenuChild(),
+			ActionMenuChild(tr.Order().RemoveUnusedPatterns(), "Remove unused data", keyActionMap["RemoveUnused"], icons.ImageCrop),
 		)
 	})
-	midiBtn := MenuBtn(tr.Theme, &t.MenuStates[2], &t.Clickables[2], "MIDI")
+	midiBtn := MenuBtn(&t.MenuStates[2], &t.Clickables[2], "MIDI")
 	midiFC := layout.Rigid(func(gtx C) D {
-		return midiBtn.Layout(gtx, t.midiMenuItems...)
+		return midiBtn.Layout(gtx,
+			BoolMenuChild(tr.MIDI().Binding(), "Bind to controller", keyActionMap["ToggleMIDIBinding"], icons.NavigationCheck),
+			ActionMenuChild(tr.MIDI().Unbind(), "Unbind", keyActionMap["MIDIUnbind"], icons.ImageLeakRemove),
+			ActionMenuChild(tr.MIDI().UnbindAll(), "Unbind all", keyActionMap["MIDIUnbindAll"], icons.ImageLeakRemove),
+			DividerMenuChild(),
+			BoolMenuChild(tr.MIDI().InputtingNotes(), "Input notes", keyActionMap["ToggleMIDIInputtingNotes"], icons.NavigationCheck),
+			DividerMenuChild(),
+			ActionMenuChild(tr.MIDI().Refresh(), "Refresh", keyActionMap["MIDIRefresh"], icons.NavigationRefresh),
+			IntMenuChild(tr.MIDI().Input(), icons.NavigationCheck),
+		)
 	})
-	helpBtn := MenuBtn(tr.Theme, &t.MenuStates[3], &t.Clickables[3], "?")
+	helpBtn := MenuBtn(&t.MenuStates[3], &t.Clickables[3], "?")
 	helpFC := layout.Rigid(func(gtx C) D {
 		return helpBtn.Layout(gtx,
-			MenuItem(tr.ShowManual(), "Manual", keyActionMap["ShowManual"], icons.AVLibraryBooks),
-			MenuItem(tr.AskHelp(), "Ask help", keyActionMap["AskHelp"], icons.ActionHelp),
-			MenuItem(tr.ReportBug(), "Report bug", keyActionMap["ReportBug"], icons.ActionBugReport),
-			MenuItem(tr.ShowLicense(), "License", keyActionMap["ShowLicense"], icons.ActionCopyright))
+			ActionMenuChild(tr.ShowManual(), "Manual", keyActionMap["ShowManual"], icons.AVLibraryBooks),
+			ActionMenuChild(tr.AskHelp(), "Ask help", keyActionMap["AskHelp"], icons.ActionHelp),
+			ActionMenuChild(tr.ReportBug(), "Report bug", keyActionMap["ReportBug"], icons.ActionBugReport),
+			DividerMenuChild(),
+			ActionMenuChild(tr.ShowLicense(), "License", keyActionMap["ShowLicense"], icons.ActionCopyright))
 	})
-	panicBtn := ToggleIconBtn(tr.Panic(), tr.Theme, t.PanicBtn, icons.AlertErrorOutline, icons.AlertError, t.panicHint, t.panicHint)
-	if tr.Panic().Value() {
+	panicBtn := ToggleIconBtn(tr.Play().Panicked(), tr.Theme, t.PanicBtn, icons.AlertErrorOutline, icons.AlertError, t.panicHint, t.panicHint)
+	if tr.Play().Panicked().Value() {
 		panicBtn.Style = &tr.Theme.IconButton.Error
 	}
 	panicFC := layout.Flexed(1, func(gtx C) D { return layout.E.Layout(gtx, panicBtn.Layout) })
-	if len(t.midiMenuItems) > 0 {
-		return flex.Layout(gtx, fileFC, editFC, midiFC, helpFC, panicFC)
+	return flex.Layout(gtx, fileFC, editFC, midiFC, helpFC, panicFC)
+}
+
+func (sp *SongPanel) Tags(level int, yield TagYieldFunc) bool {
+	for i := range sp.MenuBar.MenuStates {
+		if !sp.MenuBar.MenuStates[i].Tags(level, yield) {
+			return false
+		}
 	}
-	return flex.Layout(gtx, fileFC, editFC, helpFC, panicFC)
+	return true
 }
 
 type PlayBar struct {
@@ -461,11 +580,11 @@ func NewPlayBar() *PlayBar {
 
 func (pb *PlayBar) Layout(gtx C) D {
 	tr := TrackerFromContext(gtx)
-	playBtn := ToggleIconBtn(tr.Playing(), tr.Theme, pb.PlayingBtn, icons.AVPlayArrow, icons.AVStop, pb.playHint, pb.stopHint)
-	rewindBtn := ActionIconBtn(tr.PlaySongStart(), tr.Theme, pb.RewindBtn, icons.AVFastRewind, pb.rewindHint)
-	recordBtn := ToggleIconBtn(tr.IsRecording(), tr.Theme, pb.RecordBtn, icons.AVFiberManualRecord, icons.AVFiberSmartRecord, pb.recordHint, pb.stopRecordHint)
-	followBtn := ToggleIconBtn(tr.Follow(), tr.Theme, pb.FollowBtn, icons.ActionSpeakerNotesOff, icons.ActionSpeakerNotes, pb.followOffHint, pb.followOnHint)
-	loopBtn := ToggleIconBtn(tr.LoopToggle(), tr.Theme, pb.LoopBtn, icons.NavigationArrowForward, icons.AVLoop, pb.loopOffHint, pb.loopOnHint)
+	playBtn := ToggleIconBtn(tr.Play().Started(), tr.Theme, pb.PlayingBtn, icons.AVPlayArrow, icons.AVStop, pb.playHint, pb.stopHint)
+	rewindBtn := ActionIconBtn(tr.Play().FromBeginning(), tr.Theme, pb.RewindBtn, icons.AVFastRewind, pb.rewindHint)
+	recordBtn := ToggleIconBtn(tr.Play().IsRecording(), tr.Theme, pb.RecordBtn, icons.AVFiberManualRecord, icons.AVFiberSmartRecord, pb.recordHint, pb.stopRecordHint)
+	followBtn := ToggleIconBtn(tr.Play().IsFollowing(), tr.Theme, pb.FollowBtn, icons.ActionSpeakerNotesOff, icons.ActionSpeakerNotes, pb.followOffHint, pb.followOnHint)
+	loopBtn := ToggleIconBtn(tr.Play().IsLooping(), tr.Theme, pb.LoopBtn, icons.NavigationArrowForward, icons.AVLoop, pb.loopOffHint, pb.loopOnHint)
 
 	return Surface{Height: 4}.Layout(gtx, func(gtx C) D {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,

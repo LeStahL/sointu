@@ -30,6 +30,10 @@ type (
 		frameDeltas map[any]int64 // Player.frame (approx.)= event.Timestamp + frameDeltas[event.Source]
 		events      NoteEventList
 
+		midiRouter  midiRouter
+		midiAssigns midiAssigns
+		prevVal     []byte
+
 		status PlayerStatus // the part of the Player state that is communicated to the model to visualize what Player is doing
 
 		synther sointu.Synther // the synther used to create new synths
@@ -62,7 +66,7 @@ type (
 	NoteEvent struct {
 		Timestamp int64 // in frames, relative to whatever clock the source is using
 		On        bool
-		Channel   int
+		Channel   int // which track or instrument is triggered, depending on IsTrack
 		Note      byte
 		IsTrack   bool // true if "Channel" means track number, false if it means instrument number
 		Source    any
@@ -88,6 +92,7 @@ func NewPlayer(broker *Broker, synther sointu.Synther) *Player {
 		broker:      broker,
 		synther:     synther,
 		frameDeltas: make(map[any]int64),
+		midiAssigns: midiAssigns{ctoi: map[midiAssignKey][]midiAssignRange{}},
 	}
 }
 
@@ -126,11 +131,12 @@ func (p *Player) Process(buffer sointu.AudioBuffer, context PlayerProcessContext
 			if err != nil {
 				p.destroySynth()
 				p.send(Alert{Message: fmt.Sprintf("synth.Render: %s", err.Error()), Priority: Error, Name: "PlayerCrash", Duration: defaultAlertDuration})
-			}
-			// for performance, we don't check for NaN of every sample, because typically NaNs propagate
-			if rendered > 0 && (isNaN(buffer[0][0]) || isNaN(buffer[0][1]) || isInf(buffer[0][0]) || isInf(buffer[0][1])) {
-				p.destroySynth()
-				p.send(Alert{Message: "Inf or NaN detected in synth output", Priority: Error, Name: "PlayerCrash", Duration: defaultAlertDuration})
+			} else {
+				// for performance, we don't check for NaN of every sample, because typically NaNs propagate
+				if rendered > 0 && (isNaN(buffer[0][0]) || isNaN(buffer[0][1]) || isInf(buffer[0][0]) || isInf(buffer[0][1])) {
+					p.destroySynth()
+					p.send(Alert{Message: "Inf or NaN detected in synth output", Priority: Error, Name: "PlayerCrash", Duration: defaultAlertDuration})
+				}
 			}
 		} else {
 			rendered = min(framesUntilEvent, timeUntilRowAdvance)
@@ -174,11 +180,14 @@ func (p *Player) Process(buffer sointu.AudioBuffer, context PlayerProcessContext
 	p.SendAlert("PlayerCrash", fmt.Sprintf("synth did not fill the audio buffer even with %d render calls", numRenderTries), Error)
 }
 
+func (p *Player) EmitMIDIMsg(msg *MIDIMessage) bool { return p.midiRouter.route(p.broker, msg) }
+
 func (p *Player) destroySynth() {
 	if p.synth != nil {
 		p.synth.Close()
 		p.synth = nil
 	}
+	p.prevVal = p.prevVal[:0]
 }
 
 func (p *Player) advanceRow() {
@@ -274,11 +283,41 @@ loop:
 					}
 				}
 				TrySend(p.broker.ToModel, MsgToModel{Reset: true})
-			case NoteEvent:
-				p.events = append(p.events, m)
+			case *NoteEvent:
+				p.events = append(p.events, *m)
+			case *MIDIMessage:
+				if m.Data[0] >= 0x80 && m.Data[0] <= 0x9F {
+					chn := int(m.Data[0]&0x0F) + 1
+					note := m.Data[1]
+					velocity := m.Data[2]
+					on := m.Data[0] >= 0x90
+					cb := func(i int, v byte) {
+						if i < 0 || i >= len(p.song.Patch) {
+							return
+						}
+						instr := p.song.Patch[i]
+						if instr.MIDI.IgnoreNoteOff && !on {
+							return // instruments configured to ignore note offs never release
+						}
+						n := byte(min(max(int(v)+instr.MIDI.Transpose, 2), 255)) // 0 and 1 have special meaning
+						if instr.MIDI.NoRetrigger && on && i < len(p.prevVal) && p.prevVal[i] == n {
+							return // the instrument is configured to respond only to changes in values and there was no change
+						}
+						p.events = append(p.events, NoteEvent{Timestamp: m.Timestamp, Channel: i, Note: n, On: on, Source: m.Source})
+						for len(p.prevVal) <= i {
+							p.prevVal = append(p.prevVal, 0)
+						}
+						p.prevVal[i] = n
+					}
+					p.midiAssigns.forEach(chn, false, note, cb)    // trigger instruments that are configured to respond to this midi channel's note events
+					p.midiAssigns.forEach(chn, true, velocity, cb) // trigger instruments that are configured to respond to this midi channel's velocity events
+				}
+			case midiRouter:
+				p.midiRouter = m
 			case RecordingMsg:
 				if m.bool {
 					p.recording = Recording{State: RecordingWaitingForNote}
+					p.prevVal = p.prevVal[:0] // reset prevVal, so that instruments configured to respond only to changes in values would trigger correctly in the new recording
 				} else {
 					if p.recording.State == RecordingStarted && len(p.recording.Events) > 0 {
 						p.recording.Finish(p.frame, p.frameDeltas)
@@ -383,6 +422,7 @@ func (p *Player) compileOrUpdateSynth() {
 		}
 		voice += instr.NumVoices
 	}
+	p.midiAssigns.update(p.song.Patch)
 }
 
 // all sendTargets from player are always non-blocking, to ensure that the player thread cannot end up in a dead-lock

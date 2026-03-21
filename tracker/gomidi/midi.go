@@ -7,9 +7,7 @@ package gomidi
 import "C"
 
 import (
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/vsariola/sointu/tracker"
 	"gitlab.com/gomidi/midi/v2"
@@ -19,32 +17,15 @@ import (
 
 type (
 	RTMIDIContext struct {
-		driver    *rtmididrv.Driver
-		currentIn drivers.In
-		broker    *tracker.Broker
+		driver *rtmididrv.Driver
+		broker *tracker.Broker
 	}
 
-	RTMIDIDevice struct {
-		context *RTMIDIContext
-		in      drivers.In
+	RTMIDIInputDevice struct {
+		broker *tracker.Broker
+		drivers.In
 	}
 )
-
-func (m *RTMIDIContext) InputDevices(yield func(tracker.MIDIDevice) bool) {
-	if m.driver == nil {
-		return
-	}
-	ins, err := m.driver.Ins()
-	if err != nil {
-		return
-	}
-	for i := 0; i < len(ins); i++ {
-		device := RTMIDIDevice{context: m, in: ins[i]}
-		if !yield(device) {
-			break
-		}
-	}
-}
 
 // Open the driver.
 func NewContext(broker *tracker.Broker) *RTMIDIContext {
@@ -55,77 +36,52 @@ func NewContext(broker *tracker.Broker) *RTMIDIContext {
 	return &m
 }
 
-// Open an input device while closing the currently open if necessary.
-func (m RTMIDIDevice) Open() error {
-	if m.context.currentIn == m.in {
-		return nil
+func (m *RTMIDIContext) Inputs(yield func(input tracker.MIDIInputDevice) bool) {
+	if m.driver == nil {
+		return
 	}
-	if m.context.driver == nil {
-		return errors.New("no driver available")
-	}
-	if m.context.HasDeviceOpen() {
-		m.context.currentIn.Close()
-	}
-	m.context.currentIn = m.in
-	err := m.in.Open()
+	ins, err := m.driver.Ins()
 	if err != nil {
-		m.context.currentIn = nil
-		return fmt.Errorf("opening MIDI input failed: %W", err)
+		return
 	}
-	_, err = midi.ListenTo(m.in, m.context.HandleMessage)
-	if err != nil {
-		m.in.Close()
-		m.context.currentIn = nil
+	for _, in := range ins {
+		r := RTMIDIInputDevice{In: in, broker: m.broker}
+		if !yield(&r) {
+			break
+		}
 	}
-	return nil
-}
-
-func (d RTMIDIDevice) String() string {
-	return d.in.String()
-}
-
-func (m *RTMIDIContext) HandleMessage(msg midi.Message, timestampms int32) {
-	var channel, key, velocity uint8
-	if msg.GetNoteOn(&channel, &key, &velocity) {
-		ev := tracker.NoteEvent{Timestamp: int64(timestampms) * 441 / 10, On: true, Channel: int(channel), Note: key, Source: m}
-		tracker.TrySend(m.broker.MIDIChannel(), any(ev))
-	} else if msg.GetNoteOff(&channel, &key, &velocity) {
-		ev := tracker.NoteEvent{Timestamp: int64(timestampms) * 441 / 10, On: false, Channel: int(channel), Note: key, Source: m}
-		tracker.TrySend(m.broker.MIDIChannel(), any(ev))
-	}
-}
-
-func (c *RTMIDIContext) BPM() (bpm float64, ok bool) {
-	return 0, false
 }
 
 func (c *RTMIDIContext) Close() {
 	if c.driver == nil {
 		return
 	}
-	if c.currentIn != nil && c.currentIn.IsOpen() {
-		c.currentIn.Close()
-	}
 	c.driver.Close()
 }
 
-func (c *RTMIDIContext) HasDeviceOpen() bool {
-	return c.currentIn != nil && c.currentIn.IsOpen()
+func (c *RTMIDIContext) Support() tracker.MIDISupport {
+	if c.driver == nil {
+		return tracker.MIDISupportNoDriver
+	}
+	return tracker.MIDISupported
 }
 
-func (c *RTMIDIContext) TryToOpenBy(namePrefix string, takeFirst bool) {
-	if namePrefix == "" && !takeFirst {
-		return
+// Open an input device and starting the listener.
+func (m *RTMIDIInputDevice) Open(h func(msg *tracker.MIDIMessage)) error {
+	if err := m.In.Open(); err != nil {
+		return fmt.Errorf("opening MIDI input failed: %w", err)
 	}
-	for input := range c.InputDevices {
-		if takeFirst || strings.HasPrefix(input.String(), namePrefix) {
-			input.Open()
+	q := func(msg midi.Message, timestampms int32) {
+		if len(msg.Bytes()) == 0 || len(msg.Bytes()) > 3 {
 			return
 		}
+		t := tracker.MIDIMessage{Timestamp: int64(timestampms) * 441 / 10, Source: m}
+		copy(t.Data[:], msg.Bytes())
+		h(&t)
 	}
-	if takeFirst {
-		fmt.Errorf("Could not find any MIDI Input.\n")
-	} else {
-		fmt.Errorf("Could not find any default MIDI Input starting with \"%s\".\n", namePrefix)
+	if _, err := midi.ListenTo(m.In, q); err != nil {
+		m.In.Close()
+		return fmt.Errorf("listening to MIDI input failed: %w", err)
 	}
+	return nil
 }
