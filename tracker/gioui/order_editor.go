@@ -1,11 +1,9 @@
 package gioui
 
 import (
-	"fmt"
 	"image"
 	"math"
 	"strconv"
-	"strings"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -44,13 +42,14 @@ func NewOrderEditor(m *tracker.Model) *OrderEditor {
 	return &OrderEditor{
 		scrollTable: NewScrollTable(
 			m.Order().Table(),
-			m.Tracks().List(),
-			m.OrderRows().List(),
+			m.Track().List(),
+			m.Order().RowList(),
 		),
 	}
 }
 
-func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
+func (oe *OrderEditor) Layout(gtx C) D {
+	t := TrackerFromContext(gtx)
 	if oe.scrollTable.CursorMoved() {
 		cursor := t.TrackEditor.scrollTable.Table.Cursor()
 		t.TrackEditor.scrollTable.ColTitleList.CenterOn(cursor.X)
@@ -68,12 +67,12 @@ func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
 		defer op.Offset(image.Pt(0, -2)).Push(gtx.Ops).Pop()
 		defer op.Affine(f32.Affine2D{}.Rotate(f32.Pt(0, 0), -90*math.Pi/180).Offset(f32.Point{X: 0, Y: float32(h)})).Push(gtx.Ops).Pop()
 		gtx.Constraints = layout.Exact(image.Pt(1e6, 1e6))
-		Label(t.Theme, &t.Theme.OrderEditor.TrackTitle, t.Model.TrackTitle(i)).Layout(gtx)
+		Label(t.Theme, &t.Theme.OrderEditor.TrackTitle, t.Model.Track().Item(i).Title).Layout(gtx)
 		return D{Size: image.Pt(gtx.Dp(patternCellWidth), h)}
 	}
 
 	rowTitleBg := func(gtx C, j int) D {
-		if t.Model.Playing().Value() && j == t.PlayPosition().OrderRow {
+		if t.Model.Play().Started().Value() && j == t.Play().Position().OrderRow {
 			paint.FillShape(gtx.Ops, t.Theme.OrderEditor.Play, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(patternCellHeight))}.Op())
 		}
 		return D{}
@@ -85,11 +84,11 @@ func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
 	rowTitle := func(gtx C, j int) D {
 		w := gtx.Dp(unit.Dp(30))
 		callOp := rowMarkerPatternTextColorOp
-		if l := t.Loop(); j >= l.Start && j < l.Start+l.Length {
+		if l := t.Play().Loop(); j >= l.Start && j < l.Start+l.Length {
 			callOp = loopMarkerColorOp
 		}
 		defer op.Offset(image.Pt(0, -2)).Push(gtx.Ops).Pop()
-		widget.Label{}.Layout(gtx, t.Theme.Material.Shaper, t.Theme.OrderEditor.RowTitle.Font, t.Theme.OrderEditor.RowTitle.TextSize, strings.ToUpper(fmt.Sprintf("%02x", j)), callOp)
+		widget.Label{}.Layout(gtx, t.Theme.Material.Shaper, t.Theme.OrderEditor.RowTitle.Font, t.Theme.OrderEditor.RowTitle.TextSize, hexStr[j&255], callOp)
 		return D{Size: image.Pt(w, gtx.Dp(patternCellHeight))}
 	}
 
@@ -102,12 +101,12 @@ func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
 		point := tracker.Point{X: x, Y: y}
 		if selection.Contains(point) {
 			color = t.Theme.Selection.Inactive
-			if oe.scrollTable.Focused(gtx) {
+			if gtx.Focused(oe.scrollTable) {
 				color = t.Theme.Selection.Active
 			}
 			if point == oe.scrollTable.Table.Cursor() {
 				color = t.Theme.Cursor.Inactive
-				if oe.scrollTable.Focused(gtx) {
+				if gtx.Focused(oe.scrollTable) {
 					color = t.Theme.Cursor.Active
 				}
 			}
@@ -121,7 +120,9 @@ func (oe *OrderEditor) Layout(gtx C, t *Tracker) D {
 	table := FilledScrollTable(t.Theme, oe.scrollTable)
 	table.ColumnTitleHeight = orderTitleHeight
 
-	return table.Layout(gtx, cell, colTitle, rowTitle, nil, rowTitleBg)
+	return Surface{Height: 3, Focus: oe.scrollTable.TreeFocused(gtx)}.Layout(gtx, func(gtx C) D {
+		return table.Layout(gtx, cell, colTitle, rowTitle, nil, rowTitleBg)
+	})
 }
 
 func (oe *OrderEditor) handleEvents(gtx C, t *Tracker) {
@@ -183,14 +184,14 @@ func (oe *OrderEditor) command(t *Tracker, e key.Event) {
 	switch e.Name {
 	case key.NameDeleteBackward:
 		if e.Modifiers.Contain(key.ModShortcut) {
-			t.Model.DeleteOrderRow(true).Do()
+			t.Model.Order().DeleteRow(true).Do()
 		}
 	case key.NameDeleteForward:
 		if e.Modifiers.Contain(key.ModShortcut) {
-			t.Model.DeleteOrderRow(false).Do()
+			t.Model.Order().DeleteRow(false).Do()
 		}
 	case key.NameReturn:
-		t.Model.AddOrderRow(e.Modifiers.Contain(key.ModShortcut)).Do()
+		t.Model.Order().AddRow(e.Modifiers.Contain(key.ModShortcut)).Do()
 	}
 	if iv, err := strconv.Atoi(string(e.Name)); err == nil {
 		t.Model.Order().SetValue(oe.scrollTable.Table.Cursor(), iv)
@@ -200,6 +201,10 @@ func (oe *OrderEditor) command(t *Tracker, e key.Event) {
 		t.Model.Order().SetValue(oe.scrollTable.Table.Cursor(), b+10)
 		oe.scrollTable.EnsureCursorVisible()
 	}
+}
+
+func (t *OrderEditor) Tags(level int, yield TagYieldFunc) bool {
+	return yield(level+1, t.scrollTable.RowTitleList) && yield(level+1, t.scrollTable.ColTitleList) && yield(level, t.scrollTable)
 }
 
 func patternIndexToString(index int) string {

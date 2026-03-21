@@ -2,253 +2,152 @@ package tracker
 
 import (
 	"fmt"
-	"iter"
-	"slices"
+	"strconv"
+	"time"
 
 	"github.com/vsariola/sointu"
 )
 
-/*
-	from modelData we can derive useful information that can be cached for performance
-	or easy access, because of nested iterations over the score or patch data.
-	i.e. this needs to update when the model changes, and only then.
-*/
-
 type (
+	Rail struct {
+		PassThrough int
+		Send        bool
+		StackUse    sointu.StackUse
+	}
+
+	Wire struct {
+		From      int
+		FromSet   bool
+		To        Point
+		ToSet     bool
+		Hint      string
+		Highlight bool
+	}
+
+	RailError struct {
+		InstrIndex, UnitIndex int
+		Err                   error
+	}
+
+	// derivedModelData contains useful information derived from the modelData,
+	// cached for performance and/or easy access. This needs to be updated when
+	// corresponding part of the model changes.
 	derivedModelData struct {
 		// map Unit by ID, other entities by their respective index
-		forUnit    map[int]derivedForUnit
-		forTrack   []derivedForTrack
-		forPattern []derivedForPattern
+		patch         []derivedInstrument
+		tracks        []derivedTrack
+		railError     RailError
+		searchResults []string
 	}
 
-	derivedForUnit struct {
-		unit            sointu.Unit
-		instrument      sointu.Instrument
-		instrumentIndex int
-		unitIndex       int
-
-		// map param by Name
-		forParameter map[string]derivedForParameter
+	derivedInstrument struct {
+		wires       []Wire
+		rails       []Rail
+		railWidth   int
+		params      [][]Parameter
+		paramsWidth int
+		title       string
 	}
 
-	derivedForParameter struct {
-		sendTooltip string
-		sendSources []sendSourceData
-	}
-
-	sendSourceData struct {
-		unitId          int
-		paramName       string
-		amount          int
-		instrumentIndex int
-		instrumentName  string
-	}
-
-	derivedForTrack struct {
-		instrumentRange          []int
-		tracksWithSameInstrument []int
-		title                    string
-	}
-
-	derivedForPattern struct {
-		useCount []int
+	derivedTrack struct {
+		title            string
+		patternUseCounts []int
 	}
 )
 
-// public access functions
-
-func (m *Model) InstrumentForUnit(id int) (sointu.Instrument, int, bool) {
-	forUnit, ok := m.derived.forUnit[id]
-	if !ok {
-		return sointu.Instrument{}, -1, false
-	}
-	return forUnit.instrument, forUnit.instrumentIndex, true
-}
-
-func (m *Model) UnitInfo(id int) (instrName string, units []sointu.Unit, unitIndex int, ok bool) {
-	fu, ok := m.derived.forUnit[id]
-	return fu.instrument.Name, fu.instrument.Units, fu.unitIndex, ok
-}
-
-func (m *Model) UnitHintInfo(id int) (instrIndex int, unitType string, ok bool) {
-	fu, ok := m.derived.forUnit[id]
-	return fu.instrumentIndex, fu.unit.Type, ok
-}
-
-func (m *Model) ParameterInfo(unitId int, paramName string) (tooltip string, ok bool) {
-	du, ok1 := m.derived.forUnit[unitId]
-	if !ok1 {
-		return "", false
-	}
-	dp, ok2 := du.forParameter[paramName]
-	if !ok2 {
-		return "", false
-	}
-	return dp.sendTooltip, len(dp.sendSources) > 0
-}
-
-func (m *Model) TrackTitle(index int) string {
-	if index < 0 || index >= len(m.derived.forTrack) {
-		return ""
-	}
-	return m.derived.forTrack[index].title
-}
-
-func (m *Model) PatternUseCount(index int) []int {
-	if index < 0 || index >= len(m.derived.forPattern) {
-		return nil
-	}
-	return m.derived.forPattern[index].useCount
-}
-
-func (m *Model) PatternUnique(t, p int) bool {
-	if t < 0 || t >= len(m.derived.forPattern) {
-		return false
-	}
-	forPattern := m.derived.forPattern[t]
-	if p < 0 || p >= len(forPattern.useCount) {
-		return false
-	}
-	return forPattern.useCount[p] == 1
-}
-
-// public getters with further model information
-
-func (m *Model) TracksWithSameInstrumentAsCurrent() []int {
-	currentTrack := m.d.Cursor.Track
-	if currentTrack >= len(m.derived.forTrack) {
-		return nil
-	}
-	return m.derived.forTrack[currentTrack].tracksWithSameInstrument
-}
-
-func (m *Model) CountNextTracksForCurrentInstrument() int {
-	currentTrack := m.d.Cursor.Track
-	count := 0
-	for t := range m.TracksWithSameInstrumentAsCurrent() {
-		if t > currentTrack {
-			count++
-		}
-	}
-	return count
-}
-
 // init / update methods
 
-func (m *Model) initDerivedData() {
-	m.derived = derivedModelData{
-		forUnit:    make(map[int]derivedForUnit),
-		forTrack:   make([]derivedForTrack, 0),
-		forPattern: make([]derivedForPattern, 0),
+func (m *Model) updateDeriveData(changeType ChangeType) {
+	setSliceLength(&m.derived.tracks, len(m.d.Song.Score.Tracks))
+	if changeType&ScoreChange != 0 {
+		for index, track := range m.d.Song.Score.Tracks {
+			m.derived.tracks[index].patternUseCounts = m.buildPatternUseCounts(track)
+		}
 	}
-	m.updateDerivedScoreData()
-	m.updateDerivedPatchData()
-}
-
-func (m *Model) updateDerivedScoreData() {
-	m.derived.forTrack = m.derived.forTrack[:0]
-	m.derived.forPattern = m.derived.forPattern[:0]
-	for index, track := range m.d.Song.Score.Tracks {
-		firstInstr, lastInstr, _ := m.instrumentRangeFor(index)
-		m.derived.forTrack = append(
-			m.derived.forTrack,
-			derivedForTrack{
-				instrumentRange:          []int{firstInstr, lastInstr},
-				tracksWithSameInstrument: slices.Collect(m.tracksWithSameInstrument(index)),
-				title:                    m.buildTrackTitle(index),
-			},
-		)
-		m.derived.forPattern = append(
-			m.derived.forPattern,
-			derivedForPattern{
-				useCount: m.calcPatternUseCounts(track),
-			},
-		)
+	if changeType&ScoreChange != 0 || changeType&PatchChange != 0 {
+		for index := range m.d.Song.Score.Tracks {
+			m.derived.tracks[index].title = m.buildTrackTitle(index)
+		}
+	}
+	setSliceLength(&m.derived.patch, len(m.d.Song.Patch))
+	if changeType&PatchChange != 0 {
+		m.updateParams()
+		m.updateRails()
+		m.updateWires()
+		m.buildInstrumentTitles()
 	}
 }
 
-func (m *Model) updateDerivedPatchData() {
-	clear(m.derived.forUnit)
+func (m *Model) buildInstrumentTitles() {
+	m.midiAssign.update(m.d.Song.Patch)
 	for i, instr := range m.d.Song.Patch {
-		for u, unit := range instr.Units {
-			m.derived.forUnit[unit.ID] = derivedForUnit{
-				unit:            unit,
-				unitIndex:       u,
-				instrument:      instr,
-				instrumentIndex: i,
-				forParameter:    make(map[string]derivedForParameter),
-			}
-			m.updateDerivedParameterData(unit)
+		if i >= len(m.midiAssign.itoc) || m.midiAssign.itoc[i] == 0 {
+			m.derived.patch[i].title = "---"
+			continue
 		}
+		t := strconv.Itoa(m.midiAssign.itoc[i])
+		if instr.MIDI.Velocity {
+			t = t + " vel"
+		}
+		if instr.MIDI.Start > 0 || instr.MIDI.End > 0 {
+			t = t + fmt.Sprintf(" [%d-%d]", instr.MIDI.Start, 127-instr.MIDI.End)
+		}
+		m.derived.patch[i].title = t
 	}
 }
 
-func (m *Model) updateDerivedParameterData(unit sointu.Unit) {
-	fu, _ := m.derived.forUnit[unit.ID]
-	for name := range fu.unit.Parameters {
-		sendSources := slices.Collect(m.collectSendSources(unit, name))
-		fu.forParameter[name] = derivedForParameter{
-			sendSources: sendSources,
-			sendTooltip: m.buildSendTargetTooltip(fu.instrumentIndex, sendSources),
+func (m *Model) updateParams() {
+	for i, instr := range m.d.Song.Patch {
+		setSliceLength(&m.derived.patch[i].params, len(instr.Units))
+		paramsWidth := 0
+		for u := range instr.Units {
+			p := m.deriveParams(&instr.Units[u], m.derived.patch[i].params[u])
+			m.derived.patch[i].params[u] = p
+			paramsWidth = max(paramsWidth, len(p))
 		}
+		m.derived.patch[i].paramsWidth = paramsWidth
 	}
 }
 
-// internals...
-
-func (m *Model) collectSendSources(unit sointu.Unit, paramName string) iter.Seq[sendSourceData] {
-	return func(yield func(sendSourceData) bool) {
-		for i, instr := range m.d.Song.Patch {
-			for _, u := range instr.Units {
-				if u.Type != "send" {
-					continue
-				}
-				targetId, ok := u.Parameters["target"]
-				if !ok || targetId != unit.ID {
-					continue
-				}
-				port := u.Parameters["port"]
-				unitParam, ok := sointu.FindParamForModulationPort(unit.Type, port)
-				if !ok || unitParam.Name != paramName {
-					continue
-				}
-				sourceData := sendSourceData{
-					unitId:          u.ID,
-					paramName:       paramName,
-					instrumentIndex: i,
-					instrumentName:  instr.Name,
-					amount:          u.Parameters["amount"],
-				}
-				if !yield(sourceData) {
-					return
-				}
-			}
+func (m *Model) deriveParams(unit *sointu.Unit, ret []Parameter) []Parameter {
+	ret = ret[:0] // reset the slice
+	unitType, ok := sointu.UnitTypes[unit.Type]
+	if !ok {
+		return ret
+	}
+	portIndex := 0
+	for i, up := range unitType.Params {
+		if !up.CanSet && !up.CanModulate {
+			continue // skip parameters that cannot be set or modulated
+		}
+		if unit.Type == "oscillator" && unit.Parameters["type"] != sointu.Sample && (up.Name == "samplestart" || up.Name == "loopstart" || up.Name == "looplength") {
+			continue // don't show the sample related params unless necessary
+		}
+		if unit.Type == "send" && up.Name == "port" {
+			continue
+		}
+		q := 0
+		if up.CanModulate {
+			portIndex++
+			q = portIndex
+		}
+		ret = append(ret, Parameter{m: m, unit: unit, up: &unitType.Params[i], vtable: &namedParameter{}, port: q})
+	}
+	if unit.Type == "oscillator" && unit.Parameters["type"] == sointu.Sample {
+		ret = append(ret, Parameter{m: m, unit: unit, vtable: &gmDlsEntryParameter{}})
+	}
+	if unit.Type == "delay" {
+		if unit.Parameters["stereo"] == 1 && len(unit.VarArgs)%2 == 1 {
+			unit.VarArgs = append(unit.VarArgs, 1)
+		}
+		ret = append(ret,
+			Parameter{m: m, unit: unit, vtable: &reverbParameter{}},
+			Parameter{m: m, unit: unit, vtable: &delayLinesParameter{}})
+		for i := range unit.VarArgs {
+			ret = append(ret, Parameter{m: m, unit: unit, index: i, vtable: &delayTimeParameter{}})
 		}
 	}
-}
-
-func (m *Model) buildSendTargetTooltip(ownInstrIndex int, sendSources []sendSourceData) string {
-	if len(sendSources) == 0 {
-		return ""
-	}
-	amounts := ""
-	for _, sendSource := range sendSources {
-		sourceInfo := ""
-		if sendSource.instrumentIndex != ownInstrIndex {
-			sourceInfo = fmt.Sprintf(" from \"%s\"", sendSource.instrumentName)
-		}
-		if amounts == "" {
-			amounts = fmt.Sprintf("x %d%s", sendSource.amount, sourceInfo)
-		} else {
-			amounts = fmt.Sprintf("%s, x %d%s", amounts, sendSource.amount, sourceInfo)
-		}
-	}
-	count := "1 send"
-	if len(sendSources) > 1 {
-		count = fmt.Sprintf("%d sends", len(sendSources))
-	}
-	return fmt.Sprintf("%s [%s]", count, amounts)
+	return ret
 }
 
 func (m *Model) instrumentRangeFor(trackIndex int) (int, int, error) {
@@ -269,86 +168,173 @@ func (m *Model) instrumentRangeFor(trackIndex int) (int, int, error) {
 	return firstIndex, lastIndex, nil
 }
 
-func (m *Model) buildTrackTitle(x int) (title string) {
-	title = "?"
-	if x < 0 || x >= len(m.d.Song.Score.Tracks) {
-		return
+func (m *Model) buildTrackTitle(track int) string {
+	if track < 0 || track >= len(m.d.Song.Score.Tracks) {
+		return "?"
 	}
-	firstIndex, lastIndex, err := m.instrumentRangeFor(x)
+	firstIndex, lastIndex, err := m.instrumentRangeFor(track)
 	if err != nil {
-		return
+		return "?"
 	}
 	switch diff := lastIndex - firstIndex; diff {
 	case 0:
-		title = m.d.Song.Patch[firstIndex].Name
+		return nilIsQuestionMark(m.d.Song.Patch[firstIndex].Name)
+	case 1:
+		return fmt.Sprintf("%s/%s",
+			nilIsQuestionMark(m.d.Song.Patch[firstIndex].Name),
+			nilIsQuestionMark(m.d.Song.Patch[firstIndex+1].Name))
 	default:
-		n1 := m.d.Song.Patch[firstIndex].Name
-		n2 := m.d.Song.Patch[firstIndex+1].Name
-		if len(n1) > 0 {
-			n1 = string(n1[0])
-		} else {
-			n1 = "?"
-		}
-		if len(n2) > 0 {
-			n2 = string(n2[0])
-		} else {
-			n2 = "?"
-		}
-		if diff > 1 {
-			title = n1 + "/" + n2 + "..."
-		} else {
-			title = n1 + "/" + n2
-		}
-	}
-	return
-}
-
-func (m *Model) instrumentForTrack(trackIndex int) (int, bool) {
-	voiceIndex := m.d.Song.Score.FirstVoiceForTrack(trackIndex)
-	instrument, err := m.d.Song.Patch.InstrumentForVoice(voiceIndex)
-	return instrument, err == nil
-}
-
-func (m *Model) tracksWithSameInstrument(trackIndex int) iter.Seq[int] {
-	return func(yield func(int) bool) {
-
-		currentInstrument, currentExists := m.instrumentForTrack(trackIndex)
-		if !currentExists {
-			return
-		}
-
-		for i := 0; i < len(m.d.Song.Score.Tracks); i++ {
-			instrument, exists := m.instrumentForTrack(i)
-			if !exists {
-				return
-			}
-			if instrument != currentInstrument {
-				continue
-			}
-			if !yield(i) {
-				return
-			}
-		}
+		return fmt.Sprintf("%s/%s/...",
+			nilIsQuestionMark(m.d.Song.Patch[firstIndex].Name),
+			nilIsQuestionMark(m.d.Song.Patch[firstIndex+1].Name))
 	}
 }
 
-func (m *Model) calcPatternUseCounts(track sointu.Track) []int {
-	result := make([]int, len(m.d.Song.Score.Tracks))
-	for j, _ := range result {
-		result[j] = 0
+func nilIsQuestionMark(s string) string {
+	if len(s) == 0 {
+		return "?"
 	}
-	for j := 0; j < m.d.Song.Score.Length; j++ {
-		if j >= len(track.Order) {
-			break
+	return s
+}
+
+func (m *Model) buildPatternUseCounts(track sointu.Track) []int {
+	result := make([]int, 0, len(track.Patterns))
+	for j := range min(len(track.Order), m.d.Song.Score.Length) {
+		if p := track.Order[j]; p >= 0 {
+			for len(result) <= p {
+				result = append(result, 0)
+			}
+			result[p]++
 		}
-		p := track.Order[j]
-		for len(result) <= p {
-			result = append(result, 0)
-		}
-		if p < 0 {
-			continue
-		}
-		result[p]++
 	}
 	return result
+}
+
+func (m *Model) updateRails() {
+	type stackElem struct{ instr, unit int }
+	scratchArray := [32]stackElem{}
+	scratch := scratchArray[:0]
+	m.derived.railError = RailError{}
+	for i, instr := range m.d.Song.Patch {
+		setSliceLength(&m.derived.patch[i].rails, len(instr.Units))
+		start := len(scratch)
+		maxWidth := 0
+		for u, unit := range instr.Units {
+			stackUse := unit.StackUse()
+			numInputs := len(stackUse.Inputs)
+			if len(scratch) < numInputs {
+				if m.derived.railError == (RailError{}) {
+					m.derived.railError = RailError{
+						InstrIndex: i,
+						UnitIndex:  u,
+						Err:        fmt.Errorf("%s unit in instrument %d / %s needs %d inputs, but got only %d", unit.Type, i, instr.Name, numInputs, len(scratch)),
+					}
+				}
+				scratch = scratch[:0]
+			} else {
+				scratch = scratch[:len(scratch)-numInputs]
+			}
+			m.derived.patch[i].rails[u] = Rail{
+				PassThrough: len(scratch),
+				StackUse:    stackUse,
+				Send:        !unit.Disabled && unit.Type == "send",
+			}
+			maxWidth = max(maxWidth, len(scratch)+max(len(stackUse.Inputs), stackUse.NumOutputs))
+			for range stackUse.NumOutputs {
+				scratch = append(scratch, stackElem{instr: i, unit: u})
+			}
+		}
+		m.derived.patch[i].railWidth = maxWidth
+		diff := len(scratch) - start
+		if instr.NumVoices > 1 && diff != 0 {
+			if diff < 0 {
+				morepop := (instr.NumVoices - 1) * diff
+				if morepop > len(scratch) {
+					if m.derived.railError == (RailError{}) {
+						m.derived.railError = RailError{
+							InstrIndex: i,
+							UnitIndex:  -1,
+							Err:        fmt.Errorf("each voice of instrument %d / %s consumes %d signals, but there was not enough signals available", i, instr.Name, -diff),
+						}
+					}
+					scratch = scratch[:0]
+				} else {
+					scratch = scratch[:len(scratch)-morepop]
+				}
+			} else {
+				for range (instr.NumVoices - 1) * diff {
+					scratch = append(scratch, scratch[len(scratch)-diff])
+				}
+			}
+		}
+	}
+	if len(scratch) > 0 && m.derived.railError == (RailError{}) {
+		patch := m.d.Song.Patch
+		m.derived.railError = RailError{
+			InstrIndex: scratch[0].instr,
+			UnitIndex:  scratch[0].unit,
+			Err:        fmt.Errorf("instrument %d / %s unit %d / %s leaves a signal on stack", scratch[0].instr, patch[scratch[0].instr].Name, scratch[0].unit, patch[scratch[0].instr].Units[scratch[0].unit].Type),
+		}
+	}
+	if m.derived.railError.Err != nil {
+		m.Alerts().AddAlert(Alert{
+			Name:     "RailError",
+			Message:  m.derived.railError.Error(),
+			Priority: Error,
+			Duration: time.Second * 10,
+		})
+	} else { // clear the alert if it was set
+		m.Alerts().ClearNamed("RailError")
+	}
+}
+
+func (m *Model) updateWires() {
+	for i := range m.d.Song.Patch {
+		m.derived.patch[i].wires = m.derived.patch[i].wires[:0] // reset the wires
+	}
+	for i, instr := range m.d.Song.Patch {
+		for u, unit := range instr.Units {
+			if unit.Disabled || unit.Type != "send" {
+				continue
+			}
+			tI, tU, err := m.d.Song.Patch.FindUnit(unit.Parameters["target"])
+			if err != nil {
+				continue
+			}
+			up, tX, ok := sointu.FindParamForModulationPort(m.d.Song.Patch[tI].Units[tU].Type, unit.Parameters["port"])
+			if !ok {
+				continue
+			}
+			if tI == i {
+				// local send
+				m.derived.patch[i].wires = append(m.derived.patch[i].wires, Wire{
+					From:    u,
+					FromSet: true,
+					To:      Point{X: tX, Y: tU},
+					ToSet:   true,
+				})
+			} else {
+				// remote send
+				m.derived.patch[i].wires = append(m.derived.patch[i].wires, Wire{
+					From:    u,
+					FromSet: true,
+					Hint:    fmt.Sprintf("To instrument #%d (%s), unit #%d (%s), port %s", tI, m.d.Song.Patch[tI].Name, tU, m.d.Song.Patch[tI].Units[tU].Type, up.Name),
+				})
+				toPt := Point{X: tX, Y: tU}
+				hint := fmt.Sprintf("From instrument #%d (%s), send #%d", i, m.d.Song.Patch[i].Name, u)
+				for i, w := range m.derived.patch[tI].wires {
+					if !w.FromSet && w.ToSet && w.To == toPt {
+						m.derived.patch[tI].wires[i].Hint += "; " + hint
+						goto skipAppend
+					}
+				}
+				m.derived.patch[tI].wires = append(m.derived.patch[tI].wires, Wire{
+					To:    toPt,
+					ToSet: true,
+					Hint:  hint,
+				})
+			skipAppend:
+			}
+		}
+	}
 }

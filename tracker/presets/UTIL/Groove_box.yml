@@ -1,0 +1,7 @@
+units:
+    - type: loadnote
+      id: 17
+      parameters: {stereo: 0}
+    - type: speed
+      id: 16
+      parameters: {}

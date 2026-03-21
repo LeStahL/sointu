@@ -24,15 +24,7 @@ type (
 		eventIndex int
 		host       vst2.Host
 	}
-
-	NullMIDIContext struct{}
 )
-
-func (m NullMIDIContext) InputDevices(yield func(tracker.MIDIDevice) bool) {}
-
-func (m NullMIDIContext) Close() {}
-
-func (m NullMIDIContext) HasDeviceOpen() bool { return false }
 
 func (c *VSTIProcessContext) BPM() (bpm float64, ok bool) {
 	timeInfo := c.host.GetTimeInfo(vst2.TempoValid)
@@ -40,6 +32,14 @@ func (c *VSTIProcessContext) BPM() (bpm float64, ok bool) {
 		return 0, false
 	}
 	return timeInfo.Tempo, true
+}
+
+func (c *VSTIProcessContext) SampleRate() (samplerate float64, ok bool) {
+	timeInfo := c.host.GetTimeInfo(0)
+	if timeInfo == nil || timeInfo.SampleRate == 0 {
+		return 0, false
+	}
+	return timeInfo.SampleRate, true
 }
 
 func init() {
@@ -51,37 +51,39 @@ func init() {
 		if configDir, err := os.UserConfigDir(); err == nil {
 			randBytes := make([]byte, 16)
 			rand.Read(randBytes)
-			recoveryFile = filepath.Join(configDir, "sointu", "sointu-vsti-recovery-"+hex.EncodeToString(randBytes))
+			recoveryFile = filepath.Join(configDir, "sointu", "recovery", "sointu-vsti-recovery-"+hex.EncodeToString(randBytes)+".json")
 		}
 		broker := tracker.NewBroker()
-		model := tracker.NewModel(broker, cmd.MainSynther, NullMIDIContext{}, recoveryFile)
-		player := tracker.NewPlayer(broker, cmd.MainSynther)
-		detector := tracker.NewDetector(broker)
-		go detector.Run()
+		model := tracker.NewModel(broker, cmd.Synthers, cmd.NewMidiContext(broker), recoveryFile)
+		player := tracker.NewPlayer(broker, cmd.Synthers[0])
 
 		t := gioui.NewTracker(model)
-		model.InstrEnlarged().SetValue(true)
+		model.Play().TrackerHidden().SetValue(true)
 		// since the VST is usually working without any regard for the tracks
 		// until recording, disable the Instrument-Track linking by default
 		// because it might just confuse the user why instrument cannot be
 		// swapped/added etc.
-		model.LinkInstrTrack().SetValue(false)
+		model.Track().LinkInstrument().SetValue(false)
 		go t.Main()
 		context := &VSTIProcessContext{host: h}
 		buf := make(sointu.AudioBuffer, 1024)
 		var totalFrames int64 = 0
+		start := time.Now()
 		return vst2.Plugin{
-				UniqueID:       PLUGIN_ID,
+				UniqueID:       [4]byte{'S', 'n', 't', 'u'},
 				Version:        version,
 				InputChannels:  0,
 				OutputChannels: 2,
-				Name:           PLUGIN_NAME,
+				Name:           "Sointu",
 				Vendor:         "vsariola/sointu",
 				Category:       vst2.PluginCategorySynth,
 				Flags:          vst2.PluginIsSynth,
 				ProcessFloatFunc: func(in, out vst2.FloatBuffer) {
-					if s := h.GetSampleRate(); math.Abs(float64(h.GetSampleRate()-44100.0)) > 1e-6 {
-						player.SendAlert("WrongSampleRate", fmt.Sprintf("VSTi host sample rate is %.0f Hz; sointu supports 44100 Hz only", s), tracker.Error)
+					if time.Since(start) > 2*time.Second { // limit the rate we query the samplerate from the host and send alerts
+						if s, ok := context.SampleRate(); ok && math.Abs(float64(s-44100.0)) > 1e-6 {
+							player.SendAlert("WrongSampleRate", fmt.Sprintf("VSTi host sample rate is %.0f Hz; Sointu supports 44100 Hz only", s), tracker.Error)
+						}
+						start = time.Now()
 					}
 					left := out.Channel(0)
 					right := out.Channel(1)
@@ -107,33 +109,28 @@ func init() {
 					for i := 0; i < events.NumEvents(); i++ {
 						switch ev := events.Event(i).(type) {
 						case *vst2.MIDIEvent:
-							if ev.Data[0] >= 0x80 && ev.Data[0] <= 0x9F {
-								channel := ev.Data[0] & 0x0F
-								note := ev.Data[1]
-								on := ev.Data[0] >= 0x90
-								trackerEvent := tracker.NoteEvent{Timestamp: int64(ev.DeltaFrames) + totalFrames, On: on, Channel: int(channel), Note: note, Source: &context}
-								tracker.TrySend(broker.MIDIChannel(), any(trackerEvent))
+							if (ev.Data[0] >= 0x80 && ev.Data[0] <= 0x9F) || (ev.Data[0] >= 0xB0 && ev.Data[0] <= 0xBF) {
+								player.EmitMIDIMsg(&tracker.MIDIMessage{Timestamp: int64(ev.DeltaFrames) + totalFrames, Data: ev.Data, Source: &context})
 							}
 						}
 					}
 				},
 				CloseFunc: func() {
-					tracker.TrySend(broker.CloseDetector, struct{}{})
 					tracker.TrySend(broker.CloseGUI, struct{}{})
-					tracker.TimeoutReceive(broker.FinishedDetector, 3*time.Second)
+					model.Close()
 					tracker.TimeoutReceive(broker.FinishedGUI, 3*time.Second)
 				},
 				GetChunkFunc: func(isPreset bool) []byte {
 					retChn := make(chan []byte)
 
-					if !tracker.TrySend(broker.ToModel, tracker.MsgToModel{Data: func() { retChn <- t.MarshalRecovery() }}) {
+					if !tracker.TrySend(broker.ToModel, tracker.MsgToModel{Data: func() { retChn <- t.History().MarshalRecovery() }}) {
 						return nil
 					}
 					ret, _ := tracker.TimeoutReceive(retChn, 5*time.Second) // ret will be nil if timeout or channel closed
 					return ret
 				},
 				SetChunkFunc: func(data []byte, isPreset bool) {
-					tracker.TrySend(broker.ToModel, tracker.MsgToModel{Data: func() { t.UnmarshalRecovery(data) }})
+					tracker.TrySend(broker.ToModel, tracker.MsgToModel{Data: func() { t.History().UnmarshalRecovery(data) }})
 				},
 			}
 

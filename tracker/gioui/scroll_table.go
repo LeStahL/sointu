@@ -37,7 +37,6 @@ type ScrollTableStyle struct {
 	ColumnTitleHeight unit.Dp
 	CellWidth         unit.Dp
 	CellHeight        unit.Dp
-	element           func(gtx C, x, y int) D
 }
 
 func NewScrollTable(table tracker.Table, vertList, horizList tracker.List) *ScrollTable {
@@ -63,7 +62,7 @@ func NewScrollTable(table tracker.Table, vertList, horizList tracker.List) *Scro
 	}
 	for k, a := range keyBindingMap {
 		switch a {
-		case "Copy", "Paste", "Cut", "Increase", "Decrease":
+		case "Copy", "Paste", "Cut", "Increase", "Decrease", "IncreaseMore", "DecreaseMore":
 			ret.eventFilters = append(ret.eventFilters, key.Filter{Focus: ret, Name: k.Name, Required: k.Modifiers})
 		}
 	}
@@ -93,17 +92,22 @@ func (st *ScrollTable) Focus() {
 	st.requestFocus = true
 }
 
-func (st *ScrollTable) Focused(gtx C) bool {
-	return gtx.Source.Focused(st)
+func (st *ScrollTable) Tags(level int, yield TagYieldFunc) bool {
+	return yield(level+1, st.RowTitleList) &&
+		yield(level+1, st.ColTitleList) &&
+		yield(level, st)
+}
+
+// TreeFocused return true if any of the tags in the scroll table has focus.
+func (st *ScrollTable) TreeFocused(gtx C) bool {
+	return !st.Tags(0, func(_ int, tag event.Tag) bool {
+		return !gtx.Focused(tag)
+	})
 }
 
 func (st *ScrollTable) EnsureCursorVisible() {
 	st.ColTitleList.EnsureVisible(st.Table.Cursor().X)
 	st.RowTitleList.EnsureVisible(st.Table.Cursor().Y)
-}
-
-func (st *ScrollTable) ChildFocused(gtx C) bool {
-	return st.ColTitleList.Focused(gtx) || st.RowTitleList.Focused(gtx)
 }
 
 func (s ScrollTableStyle) Layout(gtx C, element func(gtx C, x, y int) D, colTitle, rowTitle, colTitleBg, rowTitleBg func(gtx C, i int) D) D {
@@ -113,18 +117,17 @@ func (s ScrollTableStyle) Layout(gtx C, element func(gtx C, x, y int) D, colTitl
 	p := image.Pt(gtx.Dp(s.RowTitleWidth), gtx.Dp(s.ColumnTitleHeight))
 	s.handleEvents(gtx, p)
 
-	return Surface{Gray: 24, Focus: s.ScrollTable.Focused(gtx) || s.ScrollTable.ChildFocused(gtx)}.Layout(gtx, func(gtx C) D {
-		defer clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops).Pop()
-		dims := gtx.Constraints.Max
-		s.layoutColTitles(gtx, p, colTitle, colTitleBg)
-		s.layoutRowTitles(gtx, p, rowTitle, rowTitleBg)
-		defer op.Offset(p).Push(gtx.Ops).Pop()
-		gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X-p.X, gtx.Constraints.Max.Y-p.Y))
+	defer clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops).Pop()
+	s.layoutOffset(gtx, image.Pt(p.X, 0), func(gtx C) D { return s.ColTitleStyle.Layout(gtx, colTitle, colTitleBg) })
+	s.layoutOffset(gtx, image.Pt(0, p.Y), func(gtx C) D { return s.RowTitleStyle.Layout(gtx, rowTitle, rowTitleBg) })
+	s.layoutOffset(gtx, p, func(gtx C) D {
 		s.layoutTable(gtx, element)
 		s.RowTitleStyle.LayoutScrollBar(gtx)
 		s.ColTitleStyle.LayoutScrollBar(gtx)
-		return D{Size: dims}
+		return D{Size: gtx.Constraints.Max}
 	})
+	return D{Size: gtx.Constraints.Max}
+
 }
 
 func (s *ScrollTableStyle) handleEvents(gtx layout.Context, p image.Point) {
@@ -159,9 +162,10 @@ func (s *ScrollTableStyle) handleEvents(gtx layout.Context, p image.Point) {
 				dy := (e.Position.Y + float32(s.ScrollTable.RowTitleList.List.Position.Offset)) / float32(gtx.Dp(s.CellHeight))
 				x := dx + float32(s.ScrollTable.ColTitleList.List.Position.First)
 				y := dy + float32(s.ScrollTable.RowTitleList.List.Position.First)
-				s.ScrollTable.Table.SetCursor2(tracker.Point{X: int(x), Y: int(y)})
+				cursorPoint := tracker.Point{X: int(x), Y: int(y)}
+				s.ScrollTable.Table.SetCursor2(cursorPoint)
 				if e.Kind == pointer.Press && !e.Modifiers.Contain(key.ModShift) {
-					s.ScrollTable.Table.SetCursorFloat(x, y)
+					s.ScrollTable.Table.SetCursor(cursorPoint)
 				}
 				s.ScrollTable.cursorMoved = true
 			case pointer.Release:
@@ -171,11 +175,16 @@ func (s *ScrollTableStyle) handleEvents(gtx layout.Context, p image.Point) {
 			}
 		case key.Event:
 			if e.State == key.Press {
-				s.ScrollTable.command(gtx, e)
+				s.ScrollTable.command(gtx, e, p)
 			}
 		case transfer.DataEvent:
 			if b, err := io.ReadAll(e.Open()); err == nil {
 				s.ScrollTable.Table.Paste(b)
+			}
+		case key.FocusEvent:
+			if e.Focus {
+				s.ScrollTable.ColTitleList.EnsureVisible(s.ScrollTable.Table.Cursor().X)
+				s.ScrollTable.RowTitleList.EnsureVisible(s.ScrollTable.Table.Cursor().Y)
 			}
 		}
 	}
@@ -229,23 +238,13 @@ func (s ScrollTableStyle) layoutTable(gtx C, element func(gtx C, x, y int) D) {
 	}
 }
 
-func (s *ScrollTableStyle) layoutRowTitles(gtx C, p image.Point, fg, bg func(gtx C, i int) D) {
-	defer op.Offset(image.Pt(0, p.Y)).Push(gtx.Ops).Pop()
-	gtx.Constraints.Min.X = p.X
-	gtx.Constraints.Max.Y -= p.Y
-	gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
-	s.RowTitleStyle.Layout(gtx, fg, bg)
+func (s ScrollTableStyle) layoutOffset(gtx C, offset image.Point, element func(gtx C) D) {
+	gtx.Constraints = layout.Exact(gtx.Constraints.Max.Sub(offset))
+	defer op.Offset(offset).Push(gtx.Ops).Pop()
+	element(gtx)
 }
 
-func (s *ScrollTableStyle) layoutColTitles(gtx C, p image.Point, fg, bg func(gtx C, i int) D) {
-	defer op.Offset(image.Pt(p.X, 0)).Push(gtx.Ops).Pop()
-	gtx.Constraints.Min.Y = p.Y
-	gtx.Constraints.Max.X -= p.X
-	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	s.ColTitleStyle.Layout(gtx, fg, bg)
-}
-
-func (s *ScrollTable) command(gtx C, e key.Event) {
+func (s *ScrollTable) command(gtx C, e key.Event, p image.Point) {
 	stepX := 1
 	stepY := 1
 	if e.Modifiers.Contain(key.ModAlt) {
@@ -260,13 +259,13 @@ func (s *ScrollTable) command(gtx C, e key.Event) {
 		s.Table.Clear()
 		return
 	case key.NameUpArrow:
-		if !s.Table.MoveCursor(0, -stepY) && stepY == 1 {
+		if !s.Table.MoveCursor(0, -stepY) && stepY == 1 && p.Y > 0 {
 			s.ColTitleList.Focus()
 		}
 	case key.NameDownArrow:
 		s.Table.MoveCursor(0, stepY)
 	case key.NameLeftArrow:
-		if !s.Table.MoveCursor(-stepX, 0) && stepX == 1 {
+		if !s.Table.MoveCursor(-stepX, 0) && stepX == 1 && p.X > 0 {
 			s.RowTitleList.Focus()
 		}
 	case key.NameRightArrow:
@@ -295,11 +294,11 @@ func (s *ScrollTable) command(gtx C, e key.Event) {
 		case "Paste":
 			gtx.Execute(clipboard.ReadCmd{Tag: s})
 			return
-		case "Increase":
-			s.Table.Add(1)
+		case "Increase", "IncreaseMore":
+			s.Table.Add(1, a == "IncreaseMore")
 			return
-		case "Decrease":
-			s.Table.Add(-1)
+		case "Decrease", "DecreaseMore":
+			s.Table.Add(-1, a == "DecreaseMore")
 			return
 		}
 	}

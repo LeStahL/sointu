@@ -2,11 +2,9 @@ package tracker
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/vsariola/sointu"
-	"github.com/vsariola/sointu/vm"
 )
 
 type (
@@ -33,25 +31,26 @@ type (
 	//      case <-FinishedXXX:
 	//      case <-time.After(3 * time.Second):
 	//    }
-
 	Broker struct {
-		ToModel    chan MsgToModel
-		ToPlayer   chan any // TODO: consider using a sum type here, for a bit more type safety. See: https://www.jerf.org/iri/post/2917/
-		ToDetector chan MsgToDetector
-		ToGUI      chan any
+		ToModel       chan MsgToModel
+		ToPlayer      chan any // TODO: consider using a sum type here, for a bit more type safety. See: https://www.jerf.org/iri/post/2917/
+		ToDetector    chan MsgToDetector
+		ToGUI         chan any
+		ToSpecAn      chan MsgToSpecAn
+		ToMIDIHandler chan any
 
-		CloseDetector chan struct{}
-		CloseGUI      chan struct{}
+		CloseDetector    chan struct{}
+		CloseGUI         chan struct{}
+		CloseSpecAn      chan struct{}
+		CloseMIDIHandler chan struct{}
 
-		FinishedGUI      chan struct{}
-		FinishedDetector chan struct{}
+		FinishedGUI         chan struct{}
+		FinishedDetector    chan struct{}
+		FinishedSpecAn      chan struct{}
+		FinishedMIDIHandler chan struct{}
 
-		// mIDIEventsToGUI is true if all MIDI events should be sent to the GUI,
-		// for inputting notes to tracks. If false, they should be sent to the
-		// player instead.
-		mIDIEventsToGUI atomic.Bool
-
-		bufferPool sync.Pool
+		bufferPool   sync.Pool
+		spectrumPool sync.Pool
 	}
 
 	// MsgToModel is a message sent to the model. The most often sent data
@@ -59,10 +58,9 @@ type (
 	// avoid allocations. All the infrequently passed messages can be boxed &
 	// cast to any; casting pointer types to any is cheap (does not allocate).
 	MsgToModel struct {
-		HasPanicPosLevels bool
-		Panic             bool
-		SongPosition      sointu.SongPos
-		VoiceLevels       [vm.MAX_VOICES]float32
+		HasPanicPlayerStatus bool
+		Panic                bool
+		PlayerStatus         PlayerStatus
 
 		HasDetectorResult bool
 		DetectorResult    DetectorResult
@@ -87,9 +85,19 @@ type (
 		HasOversampling  bool
 	}
 
+	// MsgToGUI is a message sent to the GUI, as GUI stores part of the state.
+	// In particular, GUI knows about where lists / tables are centered, so the
+	// kind of messages we send to the GUI are about centering the view on a
+	// specific row, or ensuring that the cursor is visible.
 	MsgToGUI struct {
 		Kind  GUIMessageKind
 		Param int
+	}
+
+	MsgToSpecAn struct {
+		SpecSettings specAnSettings
+		HasSettings  bool
+		Data         any
 	}
 
 	GUIMessageKind int
@@ -103,23 +111,23 @@ const (
 
 func NewBroker() *Broker {
 	return &Broker{
-		ToPlayer:         make(chan interface{}, 1024),
-		ToModel:          make(chan MsgToModel, 1024),
-		ToDetector:       make(chan MsgToDetector, 1024),
-		ToGUI:            make(chan any, 1024),
-		CloseDetector:    make(chan struct{}, 1),
-		CloseGUI:         make(chan struct{}, 1),
-		FinishedGUI:      make(chan struct{}),
-		FinishedDetector: make(chan struct{}),
-		bufferPool:       sync.Pool{New: func() interface{} { return &sointu.AudioBuffer{} }},
+		ToPlayer:            make(chan any, 1024),
+		ToModel:             make(chan MsgToModel, 1024),
+		ToDetector:          make(chan MsgToDetector, 1024),
+		ToGUI:               make(chan any, 1024),
+		ToMIDIHandler:       make(chan any, 1024),
+		ToSpecAn:            make(chan MsgToSpecAn, 1024),
+		CloseDetector:       make(chan struct{}, 1),
+		CloseGUI:            make(chan struct{}, 1),
+		CloseSpecAn:         make(chan struct{}, 1),
+		CloseMIDIHandler:    make(chan struct{}, 1),
+		FinishedGUI:         make(chan struct{}),
+		FinishedDetector:    make(chan struct{}),
+		FinishedSpecAn:      make(chan struct{}),
+		FinishedMIDIHandler: make(chan struct{}),
+		bufferPool:          sync.Pool{New: func() any { return &sointu.AudioBuffer{} }},
+		spectrumPool:        sync.Pool{New: func() any { return &Spectrum{} }},
 	}
-}
-
-func (b *Broker) MIDIChannel() chan<- any {
-	if b.mIDIEventsToGUI.Load() {
-		return b.ToGUI
-	}
-	return b.ToPlayer
 }
 
 // GetAudioBuffer returns an audio buffer from the buffer pool. The buffer is
@@ -139,16 +147,30 @@ func (b *Broker) PutAudioBuffer(buf *sointu.AudioBuffer) {
 	b.bufferPool.Put(buf)
 }
 
+func (b *Broker) GetSpectrum() *Spectrum {
+	return b.spectrumPool.Get().(*Spectrum)
+}
+
+func (b *Broker) PutSpectrum(s *Spectrum) {
+	if len((*s)[0]) > 0 {
+		(*s)[0] = (*s)[0][:0]
+	}
+	if len((*s)[1]) > 0 {
+		(*s)[1] = (*s)[1][:0]
+	}
+	b.spectrumPool.Put(s)
+}
+
 // TrySend is a helper function to send a value to a channel if it is not full.
 // It is guaranteed to be non-blocking. Return true if the value was sent, false
 // otherwise.
 func TrySend[T any](c chan<- T, v T) bool {
 	select {
 	case c <- v:
+		return true
 	default:
 		return false
 	}
-	return true
 }
 
 // TimeoutReceive is a helper function to block until a value is received from a

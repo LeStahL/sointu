@@ -5,6 +5,7 @@ import (
 	"image/color"
 
 	"gioui.org/text"
+	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 	"golang.org/x/exp/shiny/materialdesign/icons"
@@ -18,11 +19,21 @@ type Theme struct {
 		Text     ButtonStyle
 		Disabled ButtonStyle
 		Menu     ButtonStyle
+		Tab      struct {
+			Active          ButtonStyle
+			Inactive        ButtonStyle
+			IndicatorHeight unit.Dp
+			IndicatorColor  color.NRGBA
+		}
 	}
-	Oscilloscope  OscilloscopeStyle
+	IconButton struct {
+		Enabled  IconButtonStyle
+		Disabled IconButtonStyle
+		Emphasis IconButtonStyle
+		Error    IconButtonStyle
+	}
+	Plot          PlotStyle
 	NumericUpDown NumericUpDownStyle
-	DialogTitle   LabelStyle
-	DialogText    LabelStyle
 	SongPanel     struct {
 		RowHeader  LabelStyle
 		RowValue   LabelStyle
@@ -30,12 +41,9 @@ type Theme struct {
 		Version    LabelStyle
 		ErrorColor color.NRGBA
 		Bg         color.NRGBA
+		ScrollBar  ScrollBarStyle
 	}
-	Alert struct {
-		Warning PopupAlertStyle
-		Error   PopupAlertStyle
-		Info    PopupAlertStyle
-	}
+	Alert      AlertStyles
 	NoteEditor struct {
 		TrackTitle LabelStyle
 		OrderRow   LabelStyle
@@ -49,11 +57,7 @@ type Theme struct {
 		OneBeat    color.NRGBA
 		TwoBeat    color.NRGBA
 	}
-	Dialog struct {
-		Bg    color.NRGBA
-		Title LabelStyle
-		Text  LabelStyle
-	}
+	Dialog      DialogStyle
 	OrderEditor struct {
 		TrackTitle LabelStyle
 		RowTitle   LabelStyle
@@ -63,14 +67,14 @@ type Theme struct {
 		Play       color.NRGBA
 	}
 	Menu struct {
-		Text     LabelStyle
-		ShortCut color.NRGBA
-		Hover    color.NRGBA
-		Disabled color.NRGBA
+		Main   MenuStyle
+		Preset MenuStyle
 	}
 	InstrumentEditor struct {
-		Octave            LabelStyle
-		Voices            LabelStyle
+		Octave     LabelStyle
+		Properties struct {
+			Label LabelStyle
+		}
 		InstrumentComment EditorStyle
 		UnitComment       EditorStyle
 		InstrumentList    struct {
@@ -88,13 +92,34 @@ type Theme struct {
 			Warning      color.NRGBA
 			Error        color.NRGBA
 		}
+		Presets struct {
+			SearchBg  color.NRGBA
+			Directory LabelStyle
+			Results   struct {
+				Builtin LabelStyle
+				User    LabelStyle
+				UserDir LabelStyle
+			}
+		}
 	}
 	UnitEditor struct {
-		Hint          LabelStyle
+		Name          LabelStyle
 		Chooser       LabelStyle
-		ParameterName LabelStyle
-		InvalidParam  color.NRGBA
-		SendTarget    color.NRGBA
+		Hint          LabelStyle
+		WireColor     color.NRGBA
+		WireHint      LabelStyle
+		WireHighlight color.NRGBA
+		Width         unit.Dp
+		Height        unit.Dp
+		RackComment   LabelStyle
+		UnitList      struct {
+			LabelWidth unit.Dp
+			Name       LabelStyle
+			Disabled   LabelStyle
+			Error      color.NRGBA
+		}
+		Error   color.NRGBA
+		Divider color.NRGBA
 	}
 	Cursor    CursorStyle
 	Selection CursorStyle
@@ -103,10 +128,20 @@ type Theme struct {
 		Bg    color.NRGBA
 	}
 	Popup struct {
-		Bg     color.NRGBA
-		Shadow color.NRGBA
+		Menu        PopupStyle
+		Dialog      PopupStyle
+		ContextMenu PopupStyle
 	}
-	ScrollBar ScrollBarStyle
+	Split        SplitStyle
+	ScrollBar    ScrollBarStyle
+	Knob         KnobStyle
+	DisabledKnob KnobStyle
+	Switch       SwitchStyle
+	SignalRail   RailStyle
+	Port         PortStyle
+
+	// iconCache is used to cache the icons created from iconvg data
+	iconCache map[*byte]*widget.Icon
 }
 
 type CursorStyle struct {
@@ -127,7 +162,17 @@ func NewTheme() (*Theme, error) {
 	ret.Material.Icon.CheckBoxUnchecked = must(widget.NewIcon(icons.ToggleCheckBoxOutlineBlank))
 	ret.Material.Icon.RadioChecked = must(widget.NewIcon(icons.ToggleRadioButtonChecked))
 	ret.Material.Icon.RadioUnchecked = must(widget.NewIcon(icons.ToggleRadioButtonUnchecked))
+	ret.iconCache = make(map[*byte]*widget.Icon)
 	return &ret, warn
+}
+
+func (th *Theme) Icon(data []byte) *widget.Icon {
+	if icon, ok := th.iconCache[&data[0]]; ok {
+		return icon
+	}
+	icon := must(widget.NewIcon(data))
+	th.iconCache[&data[0]] = icon
+	return icon
 }
 
 func must[T any](ic T, err error) T {

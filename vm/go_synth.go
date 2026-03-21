@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/vsariola/sointu"
 )
@@ -27,6 +28,7 @@ type (
 		stack      []float32
 		state      synthState
 		delaylines []delayline
+		cpuLoad    sointu.CPULoad
 	}
 
 	// GoSynther is a Synther implementation that can converts patches into
@@ -93,6 +95,9 @@ success:
 	f.Read(su_sample_table[:])
 }
 
+func (s GoSynther) Name() string                 { return "Go" }
+func (s GoSynther) SupportsMultithreading() bool { return false }
+
 func (s GoSynther) Synth(patch sointu.Patch, bpm int) (sointu.Synth, error) {
 	bytecode, err := NewBytecode(patch, AllFeatures{}, bpm)
 	if err != nil {
@@ -111,6 +116,16 @@ func (s *GoSynth) Trigger(voiceIndex int, note byte) {
 
 func (s *GoSynth) Release(voiceIndex int) {
 	s.state.voices[voiceIndex].sustain = false
+}
+
+func (s *GoSynth) Close() {}
+
+func (s *GoSynth) CPULoad(loads []sointu.CPULoad) int {
+	if len(loads) < 1 {
+		return 0
+	}
+	loads[0] = s.cpuLoad
+	return 1
 }
 
 func (s *GoSynth) Update(patch sointu.Patch, bpm int) error {
@@ -141,7 +156,10 @@ func (s *GoSynth) Update(patch sointu.Patch, bpm int) error {
 	return nil
 }
 
-func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, time int, renderError error) {
+func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, renderTime int, renderError error) {
+	startTime := time.Now()
+	defer func() { s.cpuLoad.Update(time.Since(startTime), int64(samples)) }()
+
 	defer func() {
 		if err := recover(); err != nil {
 			renderError = fmt.Errorf("render panicced: %v", err)
@@ -151,7 +169,7 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 	stack := s.stack[:]
 	stack = append(stack, []float32{0, 0, 0, 0}...)
 	synth := &s.state
-	for time < maxtime && len(buffer) > 0 {
+	for renderTime < maxtime && len(buffer) > 0 {
 		opcodesInstr := s.bytecode.Opcodes
 		operandsInstr := s.bytecode.Operands
 		opcodes, operands := opcodesInstr, operandsInstr
@@ -463,10 +481,10 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 						}
 						omega += float64(unit.ports[6]) // add frequency modulation
 						var amplitude float32
-						*statevar += float32(omega)
+						phase := float64(*statevar) + omega
 						if flags&0x80 == 0x80 { // if this is a sample oscillator
-							phase := *statevar
-							phase += params[2]
+							*statevar = float32(phase)
+							phase += float64(params[2])
 							sampleno := operandsAtTransform[3] // reuse color as the sample number
 							sampleoffset := s.bytecode.SampleOffsets[sampleno]
 							sampleindex := int(phase*84.28074964676522 + 0.5)
@@ -479,22 +497,25 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 							sampleindex += int(sampleoffset.Start)
 							amplitude = float32(int16(binary.LittleEndian.Uint16(su_sample_table[sampleindex*2:]))) / 32767.0
 						} else {
-							*statevar -= float32(int(*statevar+1) - 1)
-							phase := *statevar
-							phase += params[2]
-							phase -= float32(int(phase))
-							color := params[3]
+							// at this point, the native synth actually uses 80-bit precision, so emulate that as closely as possible by using 64-bit math here
+							phase += 1
+							phase -= float64(int(phase))
+							*statevar = float32(phase)
+							phase += float64(params[2])
+							phase += 1
+							phase -= float64(int(phase)) // this should guaranteee that phase is [0,1), so that the Trisaw should not nan even if color = 1
+							color := float64(params[3])
 							switch {
 							case flags&0x40 == 0x40: // Sine
 								if phase < color {
-									amplitude = float32(math.Sin(2 * math.Pi * float64(phase/color)))
+									amplitude = float32(math.Sin(2 * math.Pi * phase / color))
 								}
 							case flags&0x20 == 0x20: // Trisaw
-								if phase >= color {
+								if phase >= color { // since phase cannot be 1, if color = 1, then this condition never fires
 									phase = 1 - phase
 									color = 1 - color
 								}
-								amplitude = phase/color*2 - 1
+								amplitude = float32(phase/color*2 - 1)
 							case flags&0x10 == 0x10: // Pulse
 								if phase >= color {
 									amplitude = -1
@@ -576,6 +597,64 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 				if stereo {
 					stack = append(stack, gain)
 				}
+			case opBelleq:
+				// Bell-shaped peaking filter equations based on https://shepazu.github.io/Audio-EQ-Cookbook/audio-eq-cookbook.html:
+				//   alpha = sin(omega0)/(2*Q) where omega0 determines the angular frequency of the peak and Q is the Q-factor
+				//   A = sqrt(10^(dBgain/20)) = 10^(dBgain/40) where dbGain determines the gain at the peak
+				//   b0 = 1 + alpha*A, b1 = -2*cos(omega0), b2 = 1 - alpha*A,
+				//   a0 = 1 + alpha/A, a1 = -2*cos(omega0), a2 = 1 - alpha/A are the biquad filter coefficients
+				omega0 := 2 * params[0] * params[0]                                // square the omega to have a bit more values mapping to bass frequencies
+				alpha := float32(math.Sin(float64(omega0))) * 2 * params[1]        // Q=1/(4*(p/128)) gives a range of Q = 0.25 ... 32
+				A := float32(math.Pow(2, float64(params[2]-.5)*6.643856189774724)) // +-40 dB, reusing same constant as dbgain unit
+				u, v := alpha*A, alpha/A
+				b0, b1, b2 := 1+u, -2*float32(math.Cos(float64(omega0))), 1-u
+				a0, a1, a2 := 1+v, b1, 1-v
+				for i := range channels { // biquad filter in transposed direct from II (https://en.wikipedia.org/wiki/Digital_biquad_filter)
+					x := stack[l-1-i]
+					y := (b0*x + unit.state[i]) / a0 // the biquad was not in normalized form, so we need to divide by a0
+					unit.state[i] = b1*x - a1*y + unit.state[2+i]
+					unit.state[2+i] = b2*x - a2*y
+					stack[l-1-i] = y
+				}
+			case opNoisegate:
+				signal := stack[l-1] * stack[l-1]
+				if stereo {
+					signalR := stack[l-2] * stack[l-2]
+					if signal < signalR {
+						signal = signalR
+					}
+				}
+				threshold := params[0] * params[0]
+				// unit.state takes inverse level, to be initialized at 1
+				level := 1 - unit.state[0]
+				holding := unit.state[1]
+				// attacking is delayed until "holding" did count down to 0
+				if signal > threshold {
+					holding = 1
+				} else if holding > 0 {
+					holding -= nonLinearMap(params[3])
+				}
+				if holding > 0 {
+					release := nonLinearMap(params[2])
+					level += release
+					if level > 1 {
+						level = 1
+					}
+				} else {
+					attack := nonLinearMap(params[1])
+					level -= attack
+					if level < 0 {
+						level = 0
+					}
+				}
+				unit.state[0] = 1 - level
+				unit.state[1] = holding
+				// like the compressor, this does not directly multiply the factor
+				// but writes it onto the stack for the user to decide what to do
+				stack = append(stack, level)
+				if stereo {
+					stack = append(stack, level)
+				}
 			case opSync:
 				break
 			default:
@@ -585,25 +664,26 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, t
 				if !valid {
 					return samples, time, errors.New("invalid / unimplemented opcode")
 				}
+				return samples, renderTime, errors.New("invalid / unimplemented opcode")
 			}
 			units = units[1:]
 		}
 		if len(stack) < 4 {
-			return samples, time, errors.New("stack underflow")
+			return samples, renderTime, errors.New("stack underflow")
 		}
 		if len(stack) > 4 {
-			return samples, time, errors.New("stack not empty")
+			return samples, renderTime, errors.New("stack not empty")
 		}
 		buffer[0][0], buffer[0][1] = synth.outputs[0], synth.outputs[1]
 		synth.outputs[0] = 0
 		synth.outputs[1] = 0
 		buffer = buffer[1:]
 		samples++
-		time++
+		renderTime++
 		s.state.globalTime++
 	}
 	s.stack = stack[:0]
-	return samples, time, nil
+	return samples, renderTime, nil
 }
 
 func (s *synthState) rand() float32 {

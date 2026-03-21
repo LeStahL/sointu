@@ -1,15 +1,13 @@
-name: Popper
-numvoices: 3
 units:
-    - type: envelope
-      id: 1
-      parameters: {attack: 0, decay: 65, gain: 128, release: 70, stereo: 0, sustain: 0}
+    - id: 197
+      parameters: {}
+      comment: Modulations
     - type: envelope
       id: 2
       parameters: {attack: 5, decay: 55, gain: 128, release: 80, stereo: 0, sustain: 0}
     - type: send
       id: 3
-      parameters: {amount: 87, port: 0, sendpop: 0, target: 19}
+      parameters: {amount: 87, port: 0, sendpop: 0, target: 1242}
     - type: send
       id: 4
       parameters: {amount: 89, port: 0, sendpop: 0, target: 20}
@@ -28,41 +26,56 @@ units:
     - type: send
       id: 12
       parameters: {amount: 80, port: 1, sendpop: 1, target: 16}
+    - id: 196
+      parameters: {}
+      comment: Main oscillators
     - type: oscillator
       id: 14
       parameters: {color: 128, detune: 64, gain: 64, lfo: 0, phase: 0, shape: 63, stereo: 0, transpose: 76, type: 2, unison: 0}
     - type: oscillator
+      id: 16
+      parameters: {color: 64, detune: 64, gain: 64, lfo: 0, phase: 18, shape: 64, stereo: 0, transpose: 76, type: 2, unison: 2}
+    - type: oscillator
       id: 15
       parameters: {color: 40, detune: 64, gain: 64, lfo: 0, phase: 0, shape: 61, stereo: 0, transpose: 76, type: 2, unison: 0}
-    - type: oscillator
-      id: 16
-      parameters: {color: 0, detune: 64, gain: 64, lfo: 0, phase: 18, shape: 128, stereo: 0, transpose: 76, type: 1, unison: 2}
     - type: addp
       id: 17
       parameters: {stereo: 0}
     - type: addp
-      id: 18
+      id: 1241
       parameters: {stereo: 0}
+    - id: 193
+      parameters: {}
+      comment: Filters
     - type: filter
       id: 20
-      parameters: {bandpass: 0, frequency: 71, highpass: 1, lowpass: 1, negbandpass: 1, neghighpass: 0, resonance: 96, stereo: 0}
+      parameters: {bandpass: -1, frequency: 71, highpass: 1, lowpass: 1, resonance: 96, stereo: 0}
     - type: filter
-      id: 19
-      parameters: {bandpass: 0, frequency: 50, highpass: 0, lowpass: 1, negbandpass: 1, neghighpass: 0, resonance: 128, stereo: 0}
+      id: 1242
+      parameters: {bandpass: -1, frequency: 50, highpass: 0, lowpass: 1, resonance: 128, stereo: 0}
+    - id: 194
+      parameters: {}
+      comment: Main envelope
+    - type: envelope
+      id: 1
+      parameters: {attack: 0, decay: 65, gain: 128, release: 70, stereo: 0, sustain: 0}
     - type: mulp
-      id: 21
+      id: 1243
       parameters: {stereo: 0}
+    - id: 195
+      parameters: {}
+      comment: Delays & output
     - type: delay
-      id: 22
-      parameters: {damp: 63, dry: 128, feedback: 61, notetracking: 2, pregain: 46, stereo: 0}
+      id: 1244
+      parameters: {damp: 63, dry: 63, feedback: 61, notetracking: 2, pregain: 46, stereo: 0}
       varargs: [48]
     - type: pan
       id: 23
       parameters: {panning: 52, stereo: 0}
     - type: delay
       id: 24
-      parameters: {damp: 0, dry: 76, feedback: 18, notetracking: 0, pregain: 94, stereo: 0}
+      parameters: {damp: 0, dry: 64, feedback: 18, notetracking: 0, pregain: 80, stereo: 0}
       varargs: [1008]
     - type: outaux
       id: 25
-      parameters: {auxgain: 27, outgain: 37, stereo: 1}
+      parameters: {auxgain: 23, outgain: 29, stereo: 1}

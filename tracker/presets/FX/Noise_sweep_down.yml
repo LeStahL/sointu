@@ -1,0 +1,26 @@
+units:
+    - type: envelope
+      id: 1733
+      parameters: {attack: 0, decay: 107, gain: 128, release: 0, stereo: 0, sustain: 0}
+    - type: send
+      id: 1734
+      parameters: {amount: 128, port: 0, sendpop: 0, stereo: 0, target: 1736, voice: 0}
+    - type: noise
+      id: 1735
+      parameters: {gain: 67, shape: 64, stereo: 0}
+    - type: filter
+      id: 1736
+      parameters: {bandpass: 1, frequency: 0, highpass: 0, lowpass: 0, resonance: 128, stereo: 0}
+    - type: mulp
+      id: 1737
+      parameters: {stereo: 0}
+    - type: delay
+      id: 1738
+      parameters: {damp: 0, dry: 128, feedback: 102, notetracking: 2, pregain: 90, stereo: 0}
+      varargs: [48]
+    - type: pan
+      id: 1739
+      parameters: {panning: 64, stereo: 0}
+    - type: outaux
+      id: 1740
+      parameters: {auxgain: 27, outgain: 25, stereo: 1}

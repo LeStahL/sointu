@@ -7,27 +7,39 @@ intros, forked from [4klang](https://github.com/hzdgopher/4klang). Targetable
 architectures include 386, amd64, and WebAssembly; targetable platforms include
 Windows, Mac, Linux (and related) + browser.
 
-User manual will be in the [Wiki](https://github.com/vsariola/sointu/wiki).
+- [User manual](https://github.com/vsariola/sointu/wiki) is in the Wiki
+- [Discussions](https://github.com/vsariola/sointu/discussions) is for asking
+  help, sharing patches/instruments and brainstorming ideas
+- [Issues](https://github.com/vsariola/sointu/issues) is for reporting bugs
 
 Installation
 ------------
 
-You can either 1) download the prebuilt release binaries from the
-[releases](https://github.com/vsariola/sointu/releases); or 2) download the
-latest build from the master branch from the
-[actions](https://github.com/vsariola/sointu/actions) (find workflow "Binaries"
-and scroll down for .zip files containing the artifacts). Then just run one of
-the executables or, in the case of the VST plugins library files, copy them
-wherever you keep you VST2 plugins.
+You can either:
 
-The pre 1.0 version tags are mostly for reference: no backwards
-compatibility will be guaranteed while upgrading to a newer version.
-Backwards compatibility will be attempted from 1.0 onwards.
+  1) Download the latest build from the master branch from the
+     [actions](https://github.com/vsariola/sointu/actions). Find workflow
+     "Binaries" and scroll down for .zip files containing the artifacts.
+     **Note:** You have to be logged into Github to download artifacts!
 
-**Uninstallation**: Sointu stores recovery data in OS-specific folders
-e.g. `AppData/Roaming/Sointu` on Windows. For clean uninstall, delete
-also this folder. See [here](https://pkg.go.dev/os#UserConfigDir) where
-to find those folders on other platforms.
+ or
+
+  2) Download one of the tagged
+     [releases](https://github.com/vsariola/sointu/releases).
+    
+In both cases, you can then just run one of the executables (no need to install
+anything); or in the case of the VST plugins library files, copy them wherever
+you keep you VST2 plugins.
+
+The pre 1.0 version release tags are mostly for reference: no backwards
+compatibility will be guaranteed while upgrading to a newer version. Backwards
+compatibility will be attempted from 1.0 onwards.
+
+**Uninstallation**: Sointu stores configuration and recovery data files in
+OS-specific folders e.g. `AppData/Roaming/Sointu` on Windows. For clean
+uninstall, delete also this folder. See
+[here](https://pkg.go.dev/os#UserConfigDir) where to find those folders on other
+platforms.
 
 Summary
 -------
@@ -73,13 +85,13 @@ for the audio, so the portability is currently limited by these.
 #### Prerequisites
 
 - [go](https://golang.org/)
-- If you want to use the faster x86 assembly written synthesizer:
+- If you want to also use the x86 assembly written synthesizer, to test that the
+  patch also works once compiled:
    - Follow the instructions to build the [x86 native virtual machine](#native-virtual-machine)
      before building the tracker.
-   - cgo compatible compiler e.g. [gcc](https://gcc.gnu.org/). On
-     windows, you best bet is [MinGW](http://www.mingw.org/). We use the [tdm-gcc](https://jmeubank.github.io/tdm-gcc/).
-     The compiler can be in PATH or you can use the environment variable
-     `CC` to help go find the compiler.
+   - cgo compatible compiler e.g. [gcc](https://gcc.gnu.org/). On windows, you
+     best bet is [MinGW](http://www.mingw.org/). The compiler can be in PATH or
+     you can use the environment variable `CC` to help go find the compiler.
    - Setting environment variable `CGO_ENABLED=1` is a good idea,
      because if it is not set and go fails to find the compiler, go just
      excludes all files with `import "C"` from the build, resulting in
@@ -100,7 +112,7 @@ go build -o sointu-track.exe cmd/sointu-track/main.go
 On other platforms than Windows, replace `-o sointu-track.exe` with
 `-o sointu-track`.
 
-If you want to use the [x86 native virtual machine](#native-virtual-machine),
+If you want to include the [x86 native virtual machine](#native-virtual-machine),
 add `-tags=native` to all the commands e.g.
 
 ```
@@ -115,15 +127,14 @@ a dynamically linked library and ran inside a VST host.
 #### Prerequisites
 
 - [go](https://golang.org/)
-- cgo compatible compiler e.g. [gcc](https://gcc.gnu.org/). On windows,
-  you best bet is [MinGW](http://www.mingw.org/). We use the [tdm-gcc](https://jmeubank.github.io/tdm-gcc/).
-  The compiler can be in PATH or you can use the environment variable
-  `CC` to help go find the compiler.
+- cgo compatible compiler e.g. [gcc](https://gcc.gnu.org/). On windows, you best
+  bet is [MinGW](http://www.mingw.org/). The compiler can be in PATH or you can
+  use the environment variable `CC` to help go find the compiler.
 - Setting environment variable `CGO_ENABLED=1` is a good idea, because
   if it is not set and go fails to find the compiler, go just excludes
   all files with `import "C"` from the build, resulting in lots of
   errors about missing types.
-- If you want to use the faster x86 assembly written synthesizer:
+- If you want to build the VSTI with the native x86 assembly written synthesizer:
    - Follow the instructions to build the [x86 native virtual machine](#native-virtual-machine)
      before building the plugin itself
 
@@ -171,15 +182,15 @@ The compiler can then be used to compile a .yml song into .asm and .h files. For
 example:
 
 ```
-sointu-compile -o . -arch=386 tests/test_chords.yml
+sointu-compile -arch=386 tests/test_chords.yml
 nasm -f win32 test_chords.asm
 ```
 
 WebAssembly example:
 
 ```
-sointu-compile -o . -arch=wasm tests/test_chords.yml
-wat2wasm --enable-bulk-memory test_chords.wat
+sointu-compile -arch=wasm tests/test_chords.yml
+wat2wasm test_chords.wat
 ```
 
 If you are looking for an easy way to compile an executable from a Sointu song
@@ -203,11 +214,17 @@ there by default.
 
 ### Native virtual machine
 
-The native bridge allows Go to call the sointu compiled x86 native virtual
-machine, through cgo, instead of using the Go written bytecode interpreter. It's
-likely slightly faster than the interpreter. Before you can actually run it, you
-need to build the bridge using CMake (thus, ***this will not work with go
-get***).
+The native bridge allows Go to call the Sointu compiled x86 native virtual
+machine, through cgo, instead of using the Go written bytecode interpreter. With
+the latest Go compiler, the native virtual machine is actually slower than the
+Go-written one, but importantly, the native virtual machine allows you to test
+that the patch also works within the stack limits of the x87 virtual machine,
+which is the VM used in the compiled intros. In the tracker/VSTi, you can switch
+between the native synth and the Go synth under the CPU panel in the Song
+settings.
+
+Before you can actually run it, you need to build the bridge using CMake (thus,
+***this will not work with go get***).
 
 #### Prerequisites
 
@@ -317,13 +334,14 @@ New features since fork
 -----------------------
 
   - **New units**. For example: bit-crusher, gain, inverse gain, clip, modulate
-    bpm (proper triplets!), compressor (can be used for side-chaining).
+    bpm (proper triplets!), compressor (can be used for side-chaining), bell eq
+    (for more versatile EQuing of the sounds).
   - **Compiler**. Written in go. The input is a .yml file and the output is an
     .asm. It works by inputting the song data to the excellent go
     `text/template` package, effectively working as a preprocessor. This allows
     quite powerful combination: we can handcraft the assembly code to keep the
     entropy as low as possible, yet we can call arbitrary go functions as
-    "macros". The templates are [here](templates/) and the compiler lives
+    "macros". The templates are [here](vm/compiler/templates/) and the compiler lives
     [here](vm/compiler/).
   - **Tracker**. Written in go. Can run either as a stand-alone app or a vsti
     plugin.
@@ -340,9 +358,9 @@ New features since fork
     opcodes. So, you can have a single instrument with three voices, and three
     tracks that use this instrument, to make chords. See
     [here](tests/test_chords.yml) for an example and
-    [here](templates/amd64-386/patch.asm) for the implementation. The maximum
-    total number of voices is 32: you can have 32 monophonic instruments or any
-    combination of polyphonic instruments adding up to 32.
+    [here](vm/compiler/templates/amd64-386/patch.asm) for the implementation.
+    The maximum total number of voices is 32: you can have 32 monophonic
+    instruments or any combination of polyphonic instruments adding up to 32.
   - **Any number of voices per track**. A single track can trigger more than one
     voice. At every note, a new voice from the assigned voices is triggered and
     the previous released. Combined with the previous, you can have a single
@@ -351,13 +369,13 @@ New features since fork
     Not only that, a track can even trigger voices of different instruments,
     alternating between these two; maybe useful for example as an easy way to
     alternate between an open and a closed hihat.
-  - **Easily extensible**. Instead of %ifdef hell, the primary extension
-    mechanism is through new opcodes for the virtual machine. Only the opcodes
-    actually used in a song are compiled into the virtual machine. The goal is
-    to try to write the code so that if two similar opcodes are used, the common
-    code in both is reused by moving it to a function. Macro and linker magic
-    ensure that also helper functions are only compiled in if they are actually
-    used.
+  - **Reasonably easily extensible**. Instead of %ifdef hell, the primary
+    extension mechanism is through new opcodes for the virtual machine. Only the
+    opcodes actually used in a song are compiled into the virtual machine. The
+    goal is to try to write the code so that if two similar opcodes are used,
+    the common code in both is reused by moving it to a function. Macro and
+    linker magic ensure that also helper functions are only compiled in if they
+    are actually used.
   - **Songs are YAML files**. These markup files are simple data files,
     describing the tracks, patterns and patch structure (see
     [here](tests/test_oscillat_trisaw.yml) for an example). The sointu-compile
@@ -412,36 +430,9 @@ New features since fork
     releasing voices etc.)
   - **Calling Sointu as a library from Go language**. The Go API is slighty more
     sane than the low-level library API, offering more Go-like experience.
-  - **A bytecode interpreter written in pure go**. It's slightly slower than the
-    hand-written assembly code by sointu compiler, but with this, the tracker is
-    ultraportable and does not need cgo calls.
-
-Future goals
-------------
-
-  - **Find a more general solution for skipping opcodes / early outs**. It might
-    be a new opcode "skip" that skips from the opcode to the next out in case
-    the signal entering skip and the signal leaving out are both close to zero.
-    Need to investigate the best way to implement this.
-  - **Even more opcodes**. Some potentially useful additions could be:
-    - Equalizer / more flexible filters
-    - Very slow filters (~ DC-offset removal). Can be implemented using a single
-      bit flag in the existing filter
-    - Arbitrary envelopes; for easier automation.
-  - **MIDI support for the tracker**.
-  - **Find a solution for denormalized signals**. Denormalized floating point
-    numbers (floating point numbers that are very very small) can result in 100x
-    CPU slow down. We got hit by this already: the damp filters in delay units
-    were denormalizing, resulting in the synth being unusable in real time. Need
-    to investigate a) where denormalization can happen; b) how to prevent it:
-    add & substract value; c) make this optional to the user. For quick
-    explanation about the potential massive CPU hit, see
-    https://stackoverflow.com/questions/36781881/why-denormalized-floats-are-so-much-slower-than-other-floats-from-hardware-arch
-
-Long-shot ideas
------------
-  - **Hack deeper into audio sources from the OS**. Speech synthesis, I'm eyeing
-    at you.
+  - **A bytecode interpreter written in pure go**. With the latest Go compiler,
+    it's slightly faster hand-written one using x87 opcodes. With this, the
+    tracker is ultraportable and does not need cgo calls.
 
 Design philosophy
 -----------------
@@ -463,8 +454,8 @@ Design philosophy
   - Benchmark optimizations. Compression results are sometimes slightly
     nonintuitive so alternative implementations should always be benchmarked
     e.g. by compiling and linking a real-world song with
-    [Leviathan](https://github.com/armak/Leviathan-2.0) and observing how the
-    optimizations affect the byte size.
+    [one of the examples](examples/code/C) and observing how the optimizations
+    affect the byte size.
 
 Background and history
 ----------------------
@@ -518,6 +509,7 @@ Prods using Sointu
   - [Bicolor Challenge](https://demozoo.org/competitions/19410/) with [Sointu
     song](https://files.scene.org/view/parties/2024/deadline24/bicolor_challenge/wayfinder_-_bicolor_soundtrack.zip)
     provided by wayfinder
+  - [napolnitel](https://www.pouet.net/prod.php?which=104336) by jetlag
 
 Contributing
 ------------

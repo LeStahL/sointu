@@ -1,0 +1,61 @@
+comment: 'suggested note: D-4'
+units:
+    - id: 334
+      parameters: {}
+      comment: Tom
+    - type: envelope
+      id: 1217
+      parameters: {attack: 0, decay: 53, gain: 40, release: 0, stereo: 0, sustain: 0}
+    - type: oscillator
+      id: 1218
+      parameters: {color: 128, detune: 64, gain: 53, phase: 0, shape: 64, stereo: 0, transpose: 57, type: 0, unison: 0}
+    - type: mulp
+      id: 1219
+      parameters: {stereo: 0}
+    - type: delay
+      id: 1220
+      parameters: {damp: 74, dry: 128, feedback: 94, notetracking: 0, pregain: 96, stereo: 0}
+      varargs: [229]
+    - id: 1221
+      parameters: {}
+      comment: Snare
+    - type: envelope
+      id: 1222
+      parameters: {attack: 0, decay: 65, gain: 64, release: 0, stereo: 0, sustain: 0}
+    - type: noise
+      id: 1223
+      parameters: {gain: 64, shape: 33, stereo: 0}
+    - type: mulp
+      id: 1224
+      parameters: {stereo: 0}
+    - type: distort
+      id: 1225
+      parameters: {drive: 19, stereo: 0}
+    - type: filter
+      id: 333
+      parameters: {bandpass: 1, frequency: 84, highpass: 1, lowpass: 0, resonance: 120, stereo: 0}
+    - type: addp
+      id: 1226
+      parameters: {stereo: 0}
+    - id: 1227
+      parameters: {}
+      comment: Effects & output
+    - type: pan
+      id: 1228
+      parameters: {panning: 64, stereo: 0}
+    - type: distort
+      id: 1229
+      parameters: {drive: 87, stereo: 1}
+    - type: delay
+      id: 1230
+      parameters: {damp: 5, dry: 128, feedback: 80, notetracking: 0, pregain: 48, stereo: 1}
+      varargs: [1116, 1188, 1276, 1356, 1422, 1492, 1556, 1618, 1140, 1212, 1300, 1380, 1446, 1516, 1580, 1642]
+    - type: compressor
+      id: 1231
+      parameters: {attack: 0, invgain: 58, ratio: 94, release: 14, stereo: 1, threshold: 17}
+    - type: mulp
+      id: 1232
+      parameters: {stereo: 1}
+    - type: outaux
+      id: 1233
+      parameters: {auxgain: 4, outgain: 59, stereo: 1}

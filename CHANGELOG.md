@@ -3,8 +3,104 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.6.0]
 ### Added
+- Binary builds for sointu-play from GitHub Actions on all platforms.
+  ([#226][i226]) 
+- Song corpus with songs from real intros for testing size optimizations in
+  Sointu systematically. ([#227][i227]) 
+- MIDI velocity, keyboard splitting, forcing specific instrument to use
+  particular MIDI channel, and ability to transpose the incoming note values.
+  These settings can be configured under instrument properties. ([#124][i124],
+  [#215][i215], [#221][i221])
+- Ability to bind MIDI controllers to specific parameters. The MIDI menu has the
+  options to bind/unbind parameters. When the user starts binding a parameter,
+  Sointu waits for the next MIDI Control Change event and binds the currently
+  selected parameter to that controller. ([#152][i152])
+- Plot the envelope shape on top of the oscilloscope when the envelope unit is
+  selected.
+- Spectrum analyzer showing the spectrum. When the user has a filter or belleq
+  unit selected, it's frequency response is plotted on top. ([#67][i67])
+- belleq unit: a bell-shaped second-order filter for equalization. Belleq unit
+  takes the center frequency, bandwidth (inverse of Q-factor) and gain (+-40
+  dB). Useful for boosting or reducing specific frequency ranges. Kudos to Reaby
+  for the initial implementation!
+- Multithreaded synths: the user can split the patch up to four threads.
+  Selecting the thread can be done on the instrument properties pane.
+  Multithreading works only on the multithreaded synths, selectable from the CPU
+  panel. Currently the multithreaded rendering has not yet been implemented in
+  the compiled player and the thread information is disregarded while compiling
+  the song. ([#199][i199])
+- Preset explorer, whichs allows 1) searching the presets by name; 2) filtering
+  them by category (directory); 3) filtering them by being builtin vs. user;
+  4) filtering them if they need gm.dls (for Linux/Mac users, who don't have
+  it); and 5) saving and deleting user presets. ([#91][i91])
+- Panic the synth if it outputs NaN or Inf, and handle these more gracefully in
+  the loudness and peak detector. ([#210][i210])
+- More presets from Reaby, and all new and existing presets were normalized
+  roughly to -12 dBFS true peak. ([#211][i211])
+- noisegate unit: suppress signals below a threshold power. Parameters are
+  the attack (time to close the gate), release (time to open up again) and
+  hold times (how long, below threshold, to delay the closing) ([#109][i109])
+
+### Fixed
+- VSTi queries the host sample rate more robustly. Cubase previously reported
+  the sample rate as 0 Hz, leading to persistent error message about the sample
+  rate not being 44100 Hz. ([#222][i222])
+- Occasional NaNs in the Trisaw oscillator when color was = 0 or color = 128
+- The tracker thought that "sync" unit pops the value from stack, even if the VM
+  did not, resulting it claiming errors in patches that worked once compiled.
+
+### Changed
+- Save only units and comment to instrument files, as we keep all the other
+  fields while loading a new instrument / preset and the name comes from the
+  filename.
+- Recovery files were moved to `os.UserConfigDir()/sointu/recovery/` instead of
+  `os.UserConfigDir()/sointu/` so that they don't pollute the main configuration
+  directory and so that it's easy to delete just the recovery files.
+- Tracker model supports now enum-style values, which are integers that have a
+  name associated with them. These enums are used to display menus where you
+  select one of the options, for example in the MIDI menu to choose one of the
+  ports; a context menu in to choose which instrument triggers the oscilloscope;
+  and a context menu to choose the weighting type in the loudness detector.
+- The song panel can scroll if all the widgets don't fit into it
+- The provided MacOS executables are now arm64, which means the x86 native
+  synths are not compiled in.
+
+## [0.5.0]
+### BREAKING CHANGES
+- BREAKING CHANGE: always first modulate delay time, then apply notetracking. In
+  a delay unit, modulation adds to the delay time, while note tracking
+  multiplies it with a multiplier dependent on the note. The order of these
+  operations was different in the Go VM vs. x86 VM & WebAssembly VM. In the Go
+  VM, it first modulated, and then applied the note tracking multiplication. In
+  the two assembly VMs, it first applied the note tracking and then modulated.
+  Of these two behaviours, the Go VM behaviour made more sense: if you make a
+  vibrato of +-50 cents for C4, you probably want a vibrato of +-50 cents for C6
+  also. Thus, first modulating and then applying the note tracking
+  multiplication is now the behaviour accross all VMs.
+- BREAKING CHANGE: the negbandpass and neghighpass parameters of the filter unit
+  were removed. Setting bandpass or highpass to -1 achieves now the same end
+  result. Setting both negbandpass and bandpass to 1 was previously a no-op. Old
+  patch and instrument files are converted to the new format when loaded, but
+  newer Sointu files should not be compiled with an old version of
+  sointu-compile.  
+
+### Added
+- Signal rail that visualizes what happens in the stack, shown on the left side
+  of each unit in the rack.
+- The parameters are now displayed in a grid as knobs, with units of the
+  instrument going from the top to the bottom. Bezier lines are used to indicate
+  which sends modulate which ports. ([#173][i173])
+- Tabbing works more consistently, with widgets placed in a "tree", and plain
+  Tab moves to the next widget on the same level or more shallow in the tree,
+  while ctrl-Tab moves to next widget, regardless of its depth. This allows the
+  user to quickly move between different panels, but also tabbing into every
+  tiny widget if needed. Shift-* tab backwards.
+- Help menu, with a menu item to show the license in a dialog, and also menu
+  items to open manual, Github Discussions & Github Issues in a browser
+  ([#196][i196])
+- Show CPU load percentage in the song panel ([#192][i192])
 - Theme can be user configured, in theme.yml. This theme.yml should be placed in
   the usual sointu config directory (i.e.
   `os.UserConfigDir()/sointu/theme.yml`). See
@@ -15,18 +111,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   RMS-weighting, and peak detection supports true peak or sample peak detection.
   The loudness and peak values are displayed in the song panel ([#186][i186])
 - Oscilloscope to visualize the outputted waveform ([#61][i61])
-- Toggle button to keep instruments and tracks linked, and buttons to to split
+- Toggle button to keep instruments and tracks linked, and buttons to split
   instruments and tracks with more than 1 voice into parallel ones
   ([#163][i163], [#157][i157])
 - Mute and solo toggles for instruments ([#168][i168])
-- Compressor displays threshold and invgain in dB
+- Many units (e.g. envelopes, oscillators and compressors) display values dB
 - Dragging mouse to select rectangles in the tables
 - The standalone tracker can open a MIDI port for receiving MIDI notes
   ([#166][i166])
 - The note editor has a button to allow entering notes by MIDI. ([#170][i170])
 - Units can have comments, to make it easier to distinguish between units of
-  same type within an instrument. These comments are also shown when choosing
-  the send target. ([#114][i114])
+  same type within an instrument and to use these as subsection titles.
+  ([#114][i114])
 - A toggle button for copying non-unique patterns before editing. When enabled
   and if the pattern is used in multiple places, the pattern is copied first.
   ([#77][i77])
@@ -41,26 +137,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Include version info in the binaries, as given be `git describe`. This version
   info is shown as a label in the tracker and can be checked with `-v` flag in
   the command line tools.
-- If a parameter is controlled by a `send`, the slider is now colored
-  differently and there's a tooltip over the value to see where it comes from
-  and its amount ([#176][i176])
-- If a parameter has an invalid value (for now only `port` of a `send`), value
-  is printed grey ([#176][i176])
 - Performance improvement: values needed by the UI that are derived from the
   score or patch are cached when score or patch changes, so they don't have to
   be computed every draw. ([#176][i176])
 
 ### Fixed
-- BREAKING CHANGE: always first modulate delay time, then apply notetracking. In
-  a delay unit, modulation adds to the delay time, while note tracking
-  multiplies it with a multiplier dependent on the note. The order of these
-  operations was different in the Go VM vs. x86 VM & WebAssembly VM. In the Go
-  VM, it first modulated, and then applied the note tracking multiplication. In
-  the two assembly VMs, it first applied the note tracking and then modulated.
-  Of these two behaviours, the Go VM behaviour made more sense: if you make a
-  vibrato of +-50 cents for C4, you probably want a vibrato of +-50 cents for C6
-  also. Thus, first modulating and then applying the note tracking
-  multiplication is now the behaviour accross all VMs.
+- Tooltips will be hidden after certain amount of time has passed, to ensure
+  that the tooltips don't stay around ([#141][i141])
 - Loading instrument forgot to close the file (in model.ReadInstrument)
 - We try to honor the MIDI event time stamps, so that the timing between MIDI
   events (as reported to us by RTMIDI) will be correct.
@@ -74,8 +157,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   ([#160][i160])
 - If units have useless parameters in their parameter maps, from bugs or from a
   malformed yaml file, they are removed and user is warned about it
-- Pressing a or 1 when editing note values in hex mode created a note off line
-  ([#162][i162])
+- Pressing `a` or `1` when editing note values in hex mode created a note off
+  line ([#162][i162])
 - Warn about plugin sample rate being different from 44100 only after
   ProcessFloatFunc has been called, so that host has time to set the sample rate
   after initialization.
@@ -86,13 +169,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Numeric updown widget calculated dp-to-px conversion incorrectly, resulting in
   wrong scaling ([#150][i150])
 - Empty patch should not crash the native synth ([#148][i148])
-- sointu-play does not default to the native synth yet, choose via `-tags=native`
+- sointu-play allows choosing between the synths, assuming it was compiled with
+  `-tags=native`
 - Most buttons never gain focus, so that clicking a button does not stop
   whatever the user was currently doing and so that the user does not
   accidentally trigger the buttons by having them focused and e.g. hitting space
   ([#156][i156])
 
 ### Changed
+- When saving instrument to a file, the instrument name is not saved to the name
+  field, as Sointu will anyway use the filename as the instrument's name when it
+  is loaded.
+- Native version of the tracker/VSTi was removed. Instead, you can change
+  between the two versions of the synth on the fly, by clicking on the "Synth"
+  option under the CPU group in the song panel ([#200][i200])
+- Send amount defaults to 64 = 0.0 ([#178][i178])
 - The maximum number of delaylines in the native synth was increased to 128,
   with slight increase in memory usage ([#155][i155])
 - The numeric updown widget has a new appearance.
@@ -287,7 +378,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - a command line utility to convert .yml songs to .asm
   - a command line utility to play the songs on command line
 
-[Unreleased]: https://github.com/vsariola/sointu/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/vsariola/sointu/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/vsariola/sointu/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/vsariola/sointu/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/vsariola/sointu/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/vsariola/sointu/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/vsariola/sointu/compare/v0.2.0...v0.3.0
@@ -295,8 +388,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [0.1.0]: https://github.com/vsariola/sointu/compare/4klang-3.11...v0.1.0
 [i61]: https://github.com/vsariola/sointu/issues/61
 [i65]: https://github.com/vsariola/sointu/issues/65
+[i67]: https://github.com/vsariola/sointu/issues/67
 [i68]: https://github.com/vsariola/sointu/issues/68
 [i77]: https://github.com/vsariola/sointu/issues/77
+[i91]: https://github.com/vsariola/sointu/issues/91
 [i94]: https://github.com/vsariola/sointu/issues/94
 [i112]: https://github.com/vsariola/sointu/issues/112
 [i114]: https://github.com/vsariola/sointu/issues/114
@@ -304,12 +399,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i120]: https://github.com/vsariola/sointu/issues/120
 [i121]: https://github.com/vsariola/sointu/issues/121
 [i122]: https://github.com/vsariola/sointu/issues/122
+[i124]: https://github.com/vsariola/sointu/issues/124
 [i125]: https://github.com/vsariola/sointu/issues/125
 [i128]: https://github.com/vsariola/sointu/issues/128
 [i129]: https://github.com/vsariola/sointu/issues/129
 [i130]: https://github.com/vsariola/sointu/issues/130
 [i136]: https://github.com/vsariola/sointu/issues/136
 [i139]: https://github.com/vsariola/sointu/issues/139
+[i141]: https://github.com/vsariola/sointu/issues/141
 [i142]: https://github.com/vsariola/sointu/issues/142
 [i144]: https://github.com/vsariola/sointu/issues/144
 [i145]: https://github.com/vsariola/sointu/issues/145
@@ -318,6 +415,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i149]: https://github.com/vsariola/sointu/issues/149
 [i150]: https://github.com/vsariola/sointu/issues/150
 [i151]: https://github.com/vsariola/sointu/issues/151
+[i152]: https://github.com/vsariola/sointu/issues/152
 [i153]: https://github.com/vsariola/sointu/issues/153
 [i154]: https://github.com/vsariola/sointu/issues/154
 [i155]: https://github.com/vsariola/sointu/issues/155
@@ -330,5 +428,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 [i166]: https://github.com/vsariola/sointu/issues/166
 [i168]: https://github.com/vsariola/sointu/issues/168
 [i170]: https://github.com/vsariola/sointu/issues/170
+[i173]: https://github.com/vsariola/sointu/issues/173
 [i176]: https://github.com/vsariola/sointu/issues/176
+[i178]: https://github.com/vsariola/sointu/issues/178
+[i184]: https://github.com/vsariola/sointu/issues/184
 [i186]: https://github.com/vsariola/sointu/issues/186
+[i192]: https://github.com/vsariola/sointu/issues/192
+[i196]: https://github.com/vsariola/sointu/issues/196
+[i199]: https://github.com/vsariola/sointu/issues/199
+[i200]: https://github.com/vsariola/sointu/issues/200
+[i210]: https://github.com/vsariola/sointu/issues/210
+[i211]: https://github.com/vsariola/sointu/issues/211
+[i215]: https://github.com/vsariola/sointu/issues/215
+[i221]: https://github.com/vsariola/sointu/issues/221
+[i222]: https://github.com/vsariola/sointu/issues/222
+[i226]: https://github.com/vsariola/sointu/issues/226
+[i227]: https://github.com/vsariola/sointu/issues/227
