@@ -651,8 +651,83 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 				}
 			case opSync:
 				break
-			case opEnvelopexp, opAtan, opIllogic, opSignlogic:
-				stack = processUnits210(stack, unit, opNoStereo, stereo, params, voices)
+			case opEnvelopexp, opAtan, opBytelogic, opSignlogic, opFloatlogic:
+				stack, _ = processUnits210(stack, unit, opNoStereo, stereo, params, voices)
+			case opFeeelter:
+				//var flags byte
+				//flags, operands = operands[0], operands[1:]
+				//oversample := flags&0x1 == 1
+				// <-- TODO: how to read the "oversample" flag??? flags is always 64
+				oversample := false
+				cutoff := 80. * math.Pow(16000./80., float64(0.5*params[0]))
+				if oversample {
+					cutoff /= 2. // accounts for the double sample rate in the coeff
+				}
+				coeff := float32(math.Tan(math.Pi * cutoff / 44100.))
+				res := params[1] * params[1] * 2.
+				drive := 0.01 + 4.*params[2]*params[2]
+
+				for i := 0; i < channels; i++ {
+					input := stack[l-1-i]
+
+					/*
+						if allpass {
+							z1 := unit.state[0+i]
+							z2 := unit.state[2+i]
+							z3 := unit.state[4+i]
+							z4 := unit.state[6+i]
+							x := input + a*z1
+							z1 = a*z1 + (1-a)*x
+							x = x + a*z2
+							z2 = a*z2 + (1-a)*x
+							x = x + a*z3
+							z3 = a*z3 + (1-a)*x
+							x = x + a*z4
+							z4 = a*z4 + (1-a)*x
+							stack[l-1-i] = x
+							unit.state[0+i] = z1
+							unit.state[2+i] = z2
+							unit.state[4+i] = z3
+							unit.state[4+i] = z4
+							continue
+						}
+					*/
+
+					y1 := unit.state[0+i]
+					y2 := unit.state[2+i]
+					y3 := unit.state[4+i]
+					var output float32
+					if oversample {
+						// 3 stages, 2x oversampled:
+						x0 := unit.state[6+i]
+						x1 := 0.5 * (input + x0)
+						x0 = filterDrive(x0-res*y3, drive)
+						y1 += coeff * (input - y1)
+						y2 += coeff * (y1 - y2)
+						y3 += coeff * (y2 - y3)
+						output = y3
+						x1 = filterDrive(x1-res*y3, drive)
+						y1 += coeff * (x1 - y1)
+						y2 += coeff * (y1 - y2)
+						y3 += coeff * (y2 - y3)
+						output = 0.5 + (output + y3)
+						unit.state[6+i] = input
+					} else {
+						// 4 stages, not oversampled:
+						y4 := unit.state[6+i]
+						x := filterDrive(input-res*y4, drive)
+						y1 += coeff * (x - unit.state[0+i])
+						y2 += coeff * (unit.state[0+i] - unit.state[2+i])
+						y3 += coeff * (unit.state[2+i] - unit.state[4+i])
+						y4 += coeff * (unit.state[4+i] - unit.state[6+i])
+						output = y3
+						unit.state[6+i] = y4
+					}
+					unit.state[0+i] = y1
+					unit.state[2+i] = y2
+					unit.state[4+i] = y3
+					stack[l-1-i] = output
+				}
 			default:
 				return samples, renderTime, errors.New("invalid / unimplemented opcode")
 			}

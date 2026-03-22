@@ -214,7 +214,7 @@ func (v *NoteModel) Height() int {
 func (v *NoteModel) MoveCursor(dx, dy int) (ok bool) {
 	p := v.Cursor()
 	for dx < 0 {
-		if (*TrackModel)(v).Item(p.X).Effect && v.d.LowNibble {
+		if v.isOnEffectTrack(p) && v.d.LowNibble {
 			v.d.LowNibble = false
 		} else {
 			p.X--
@@ -223,7 +223,7 @@ func (v *NoteModel) MoveCursor(dx, dy int) (ok bool) {
 		dx++
 	}
 	for dx > 0 {
-		if (*TrackModel)(v).Item(p.X).Effect && !v.d.LowNibble {
+		if v.isOnEffectTrack(p) && !v.d.LowNibble {
 			v.d.LowNibble = true
 		} else {
 			p.X++
@@ -234,6 +234,10 @@ func (v *NoteModel) MoveCursor(dx, dy int) (ok bool) {
 	p.Y += dy
 	v.SetCursor(p)
 	return p == v.Cursor()
+}
+
+func (v *NoteModel) isOnEffectTrack(point Point) bool {
+	return (*TrackModel)(v).Item(point.X).Effect
 }
 
 func (v *NoteModel) clear(p Point) {

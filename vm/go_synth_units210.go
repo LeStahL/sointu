@@ -101,6 +101,20 @@ func scaledAtan(value float32) float32 {
 	return float32(2 / math.Pi * math.Atan(float64(value)))
 }
 
+func saturate(value float32) float32 {
+	// value / (1 + abs(value))
+	if value < 0 {
+		return value / (1 - value)
+	} else {
+		return value / (1 + value)
+	}
+}
+
+func filterDrive(value float32, drive float32) float32 {
+	//return float32(math.Tanh(float64(value*drive)) / math.Tanh(float64(drive)))
+	return saturate(value*drive) / saturate(drive)
+}
+
 func applySignLogic(valueA, valueB, amountA, amountB, amountAnd, amountOr, amountXor float32) float32 {
 	// first implement, think about usefulness later.
 	valueAnd := valueA

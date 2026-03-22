@@ -590,3 +590,18 @@ su_op_gate_leave:
     ret
 {{end}}
 
+
+{{- if .HasOp "feeelter"}}
+;-------------------------------------------------------------------------------
+;   FEEELTER opcode: alternative low pass filter
+;-------------------------------------------------------------------------------
+;   Mono:   x   ->  feeeltered(x)
+;   Stereo: l r ->  feeeltered(l) feeeltered(r)
+;-------------------------------------------------------------------------------
+{{.Func "su_op_feeelter" "Opcode"}}
+{{- if .Stereo "feeelter"}}
+    {{.Call "su_effects_stereohelper"}}
+{{- end}}
+    ; TODO - NOT IMPLEMENTED
+    ret
+{{end}}
