@@ -473,10 +473,20 @@ var UnitTypes = map[string]UnitType{
 	"feeelter": {
 		Params: []UnitParameter{
 			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-			{Name: "frequency", MinValue: 0, Default: 240, MaxValue: 240, CanSet: true, CanModulate: true},
+			{Name: "frequency", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true},
 			{Name: "resonance", MinValue: 0, Default: 0, Neutral: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 			{Name: "drive", MinValue: 0, Default: 0, Neutral: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-			{Name: "oversmpl", MinValue: 0, Default: 1, MaxValue: 1, CanSet: true, CanModulate: false},
+		},
+		StackUse: stackUseEffect,
+	},
+	"feeelall": {
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "coeff", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "fine", MinValue: 0, Default: 64, Neutral: 64, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "drive", MinValue: 0, Default: 0, Neutral: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "mod", MinValue: 0, Default: 64, Neutral: 64, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "mix", MinValue: 0, Default: 64, Neutral: 0, MaxValue: 128, CanSet: true, CanModulate: true},
 		},
 		StackUse: stackUseEffect,
 	},

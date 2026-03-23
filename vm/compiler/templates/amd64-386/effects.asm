@@ -605,3 +605,18 @@ su_op_gate_leave:
     ; TODO - NOT IMPLEMENTED
     ret
 {{end}}
+
+{{- if .HasOp "feeelall"}}
+;-------------------------------------------------------------------------------
+;   FEEELALL opcode: qms all pass filter
+;-------------------------------------------------------------------------------
+;   Mono:   x   ->  filter(x)
+;   Stereo: l r ->  filter(l) filter(r)
+;-------------------------------------------------------------------------------
+{{.Func "su_op_feeelall" "Opcode"}}
+{{- if .Stereo "feeelall"}}
+    {{.Call "su_effects_stereohelper"}}
+{{- end}}
+    ; TODO - NOT IMPLEMENTED
+    ret
+{{end}}
