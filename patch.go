@@ -7,8 +7,6 @@ import (
 	"math/bits"
 	"sort"
 	"strconv"
-
-	"gopkg.in/yaml.v3"
 )
 
 type (
@@ -125,13 +123,8 @@ var UnitTypes = map[string]UnitType{
 		},
 	},
 	"addp": {
-		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
-		StackUse: func(u *Unit) StackUse {
-			if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
-				return StackUse{Inputs: [][]int{{0}, {1}, {0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
-			}
-			return StackUse{Inputs: [][]int{{0}, {0}}, Modifies: []bool{true}, NumOutputs: 1}
-		},
+		Params:   []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
+		StackUse: stackUseMixdown,
 	},
 	"mul": {
 		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
@@ -143,13 +136,8 @@ var UnitTypes = map[string]UnitType{
 		},
 	},
 	"mulp": {
-		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
-		StackUse: func(u *Unit) StackUse {
-			if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
-				return StackUse{Inputs: [][]int{{0}, {1}, {0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
-			}
-			return StackUse{Inputs: [][]int{{0}, {0}}, Modifies: []bool{true}, NumOutputs: 1}
-		},
+		Params:   []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
+		StackUse: stackUseMixdown,
 	},
 	"xch": {
 		Params: []UnitParameter{{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false}},
@@ -201,14 +189,14 @@ var UnitTypes = map[string]UnitType{
 	"gain": {
 		Params: []UnitParameter{
 			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-			{Name: "gain", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: decibelLevelDispFunc},
+			{Name: "gain", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return strconv.FormatFloat(toDecibel(float64(v)/128), 'g', 3, 64), "dB" }},
 		},
 		StackUse: stackUseEffect,
 	},
 	"invgain": {
 		Params: []UnitParameter{
 			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-			{Name: "invgain", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: decibelInverseDispFunc},
+			{Name: "invgain", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return strconv.FormatFloat(toDecibel(128/float64(v)), 'g', 3, 64), "dB" }},
 		},
 		StackUse: stackUseEffect,
 	},
@@ -399,22 +387,123 @@ var UnitTypes = map[string]UnitType{
 		},
 		StackUse: stackUseSource,
 	},
+	"sync": {
+		Params:   []UnitParameter{},
+		StackUse: func(u *Unit) StackUse { return StackUse{Inputs: [][]int{{0}}, Modifies: []bool{false}, NumOutputs: 1} },
+	},
+	"belleq": {
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "frequency", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) {
+				freq := float64(v) / 128
+				return strconv.FormatFloat(44100*2*freq*freq/math.Pi/2, 'f', 0, 64), "Hz"
+			}},
+			{Name: "bandwidth", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) { return strconv.FormatFloat(1/(4*float64(v)/128), 'f', 2, 64), "Q" }},
+			{Name: "gain", MinValue: 0, Neutral: 64, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: func(v int) (string, string) {
+				return strconv.FormatFloat(40*(float64(v)/64-1), 'f', 2, 64), "dB"
+			}},
+		},
+		StackUse: stackUseEffect,
+	},
+	// units210:
+	"envelopexp": {
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
+			{Name: "exp_attack", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
+			{Name: "decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
+			{Name: "exp_decay", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: envelopExpDisplayFunc},
+			{Name: "release", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: nonLinearMapEngineeringTime},
+			{Name: "gain", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseSource,
+	},
+	"atan": {
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+		},
+		StackUse: stackUseEffect,
+	},
+	"signlogic": {
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 0, CanSet: false, CanModulate: false},
+			{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseMixdown,
+	},
 	"bytelogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseMixdown,
 	},
 	"floatlogic": {
-		{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
-		{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
-		{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "st0", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "st1", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "AND", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "OR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+			{Name: "XOR", MinValue: 0, MaxValue: 128, CanSet: true, CanModulate: true},
+		},
+		StackUse: stackUseMixdown,
 	},
+	"gate": {
+		Params: []UnitParameter{
+			{Name: "stereo", MinValue: 0, MaxValue: 1, CanSet: true, CanModulate: false},
+			{Name: "threshold", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: decibelLevelDispFunc},
+			{Name: "attack", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: compressorTimeDispFunc},
+			{Name: "release", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: compressorTimeDispFunc},
+			{Name: "hold", MinValue: 0, Default: 64, MaxValue: 128, CanSet: true, CanModulate: true, DisplayFunc: compressorTimeDispFunc},
+		},
+		StackUse: stackUseCalculateFactor,
+	},
+}
+
+func stackUseSource(u *Unit) StackUse {
+	if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
+		return StackUse{Inputs: [][]int{}, Modifies: []bool{true, true}, NumOutputs: 2}
+	}
+	return StackUse{Inputs: [][]int{}, Modifies: []bool{true}, NumOutputs: 1}
+}
+
+func stackUseSink(u *Unit) StackUse {
+	if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
+		return StackUse{Inputs: [][]int{{0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 0}
+	}
+	return StackUse{Inputs: [][]int{{0}}, Modifies: []bool{true}, NumOutputs: 0}
+}
+
+func stackUseEffect(u *Unit) StackUse {
+	if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
+		return StackUse{Inputs: [][]int{{0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
+	}
+	return StackUse{Inputs: [][]int{{0}}, Modifies: []bool{true}, NumOutputs: 1}
+}
+
+func stackUseMixdown(u *Unit) StackUse {
+	if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
+		return StackUse{Inputs: [][]int{{0}, {1}, {0}, {1}}, Modifies: []bool{true, true}, NumOutputs: 2}
+	}
+	return StackUse{Inputs: [][]int{{0}, {0}}, Modifies: []bool{true}, NumOutputs: 1}
+}
+
+// Effects like the Compressor add their calculated factor on top of the stack,
+// for greater flexibility (so you usually "mulp" this directly, but can choose otherwise)
+func stackUseCalculateFactor(u *Unit) StackUse {
+	if stereo, ok := u.Parameters["stereo"]; ok && stereo == 1 {
+		return StackUse{Inputs: [][]int{{0, 2, 3}, {1, 2, 3}}, Modifies: []bool{false, false, true, true}, NumOutputs: 4}
+	}
+	return StackUse{Inputs: [][]int{{0, 1}}, Modifies: []bool{false, true}, NumOutputs: 2}
 }
 
 var channelNames = [...]string{"left", "right", "aux1 left", "aux1 right", "aux2 left", "aux2 right", "aux3 left", "aux3 right"}
@@ -449,6 +538,10 @@ func engineeringTime(sec float64) (string, string) {
 		return fmt.Sprintf("%.2f", sec*1e3), "ms"
 	}
 	return fmt.Sprintf("%.2f", sec), "s"
+}
+
+func nonLinearMapEngineeringTime(v int) (string, string) {
+	return engineeringTime(math.Pow(2, 24*float64(v)/128) / 44100)
 }
 
 func formatFloat(f float64) string {

@@ -103,7 +103,11 @@ func (s GoSynther) Synth(patch sointu.Patch, bpm int) (sointu.Synth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error compiling %v", err)
 	}
-	ret := &GoSynth{bytecode: *bytecode, stack: make([]float32, 0, 4), delaylines: make([]delayline, patch.NumDelayLines())}
+	ret := &GoSynth{
+		bytecode:   *bytecode,
+		stack:      make([]float32, 0, 4),
+		delaylines: make([]delayline, patch.NumDelayLines()),
+	}
 	ret.state.randSeed = 1
 	return ret, nil
 }
@@ -651,8 +655,78 @@ func (s *GoSynth) Render(buffer sointu.AudioBuffer, maxtime int) (samples int, r
 				}
 			case opSync:
 				break
-			case opEnvelopexp, opAtan, opIllogic, opSignlogic:
-				stack = processUnits210(stack, unit, opNoStereo, stereo, params, voices)
+			////// --> QM: units210
+			case opEnvelopexp:
+				if !voice.sustain {
+					unit.state[0] = envStateRelease // set state to release
+				}
+				state := unit.state[0]
+				level := unit.state[1]
+				exponent := float64(1)
+				baseline := float32(0)
+				switch state {
+				case envStateAttack:
+					exponent = scaledEnvelopExponent(params[1])
+					level += nonLinearMap(params[0])
+					if level >= 1 {
+						level = 1
+						state = envStateDecay
+					}
+				case envStateDecay:
+					exponent = scaledEnvelopExponent(params[3])
+					sustain := params[4]
+					baseline = sustain
+					level -= nonLinearMap(params[2])
+					if level <= sustain {
+						level = sustain
+					}
+				case envStateRelease:
+					level -= nonLinearMap(params[5])
+					if level <= 0 {
+						level = 0
+					}
+				}
+				unit.state[0] = state
+				unit.state[1] = level
+				expLevel := float32(math.Pow(float64(level), exponent))
+				output := (baseline + (1-baseline)*expLevel) * params[6]
+				stack = append(stack, output)
+				if stereo {
+					stack = append(stack, output)
+				}
+			case opAtan:
+				if stereo {
+					stack[l-2] = scaledAtan(stack[l-2])
+				}
+				stack[l-1] = scaledAtan(stack[l-1])
+			case opSignlogic: // QM: units210
+				if stereo {
+					stack[l-3] = applySignLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applySignLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applySignLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
+			case opBytelogic: // QM: units210
+				if stereo {
+					stack[l-3] = applyByteLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applyByteLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applyByteLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
+			case opFloatlogic: // QM: units210
+				if stereo {
+					stack[l-3] = applyFloatLogic(stack[l-1], stack[l-3], params[0], params[1], params[2], params[3], params[4])
+					stack[l-4] = applyFloatLogic(stack[l-2], stack[l-4], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-2]
+				} else {
+					stack[l-2] = applyFloatLogic(stack[l-1], stack[l-2], params[0], params[1], params[2], params[3], params[4])
+					stack = stack[:l-1]
+				}
+			////// <-- QM: END OF units210
 			default:
 				return samples, renderTime, errors.New("invalid / unimplemented opcode")
 			}
